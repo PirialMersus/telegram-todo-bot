@@ -1,4 +1,9 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-npm run type-check
+echo "🧪 Running type checks before push..."
+npm run -s typecheck || {
+  echo "❌ Type checks failed. Use 'git push --no-verify' to bypass (not recommended)."
+  exit 1
+}
+echo "✅ Type checks passed."
