@@ -1,11 +1,13 @@
 // src/utils/time.ts
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import tz from 'dayjs/plugin/timezone';
-import { RepeatType } from '../models/Task';
+import utc from 'dayjs/plugin/utc.js';
+import tz from 'dayjs/plugin/timezone.js';
+import { RepeatType } from '../models/Task.js';
 
-dayjs.extend(utc);
-dayjs.extend(tz);
+dayjs.extend(utc as any);
+dayjs.extend(tz as any);
+
+const dayjsAny = dayjs as any;
 
 /** Возвращает список популярных IANA таймзон для кнопок */
 export const POPULAR_TZ = [
@@ -17,7 +19,7 @@ export const POPULAR_TZ = [
 
 /** Форматирует дату для показа пользователю в его таймзоне */
 export function formatInTz(date: Date | number, tzName: string) {
-  return dayjs(date).tz(tzName).format('DD.MM.YYYY HH:mm');
+  return dayjsAny(date).tz(tzName).format('DD.MM.YYYY HH:mm');
 }
 
 /** Строит UTC Date из локальных компонентов (год, месяц, день, часы, минуты) в заданной таймзоне */
@@ -26,7 +28,7 @@ export function buildUtcFromLocalParts(
   y: number, m: number, d: number,
   hh: number, mm: number
 ): Date {
-  const local = dayjs.tz(`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')} ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`, 'YYYY-MM-DD HH:mm', tzName);
+  const local = dayjsAny.tz(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')} ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`, 'YYYY-MM-DD HH:mm', tzName);
   return new Date(local.utc().toDate());
 }
 

@@ -2,11 +2,12 @@
 import 'dotenv/config';
 import express from 'express';
 import type { Request, Response } from 'express';
-import { connectDB } from './db';
-import { createBot } from './bot';
+import { connectDB } from './db.js';
+import { createBot } from './bot.js';
+import { startScheduler } from './scheduler.js';
 
 const PORT = Number(process.env.PORT) || 3000;
-const WEBHOOK_BASE = process.env.WEBHOOK_URL;           // например: https://your-app.onrender.com
+const WEBHOOK_BASE = process.env.WEBHOOK_URL;           // например: https://your-service.onrender.com
 const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
 
 (async () => {
@@ -45,11 +46,20 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
       console.log(`✅ Webhook server listening on :${PORT}`);
       console.log(`→ Webhook set to: ${webhookUrl}`);
     });
+
+    // start scheduler in webhook mode as well
+    startScheduler(bot);
   } else {
     // === LONG POLLING MODE (локально/без публичного URL) ===
-    await bot.launch();
-    console.log('🤖 Bot launched in LONG POLLING mode');
-    process.once('SIGINT', () => bot.stop('SIGINT'));
-    process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    await (async () => {
+      await bot.launch();
+      console.log('🤖 Bot launched in LONG POLLING mode');
+    })();
+
+    // start scheduler when using polling
+    startScheduler(bot);
+
+    process.once('SIGINT', () => (bot as any).stop('SIGINT'));
+    process.once('SIGTERM', () => (bot as any).stop('SIGTERM'));
   }
 })();

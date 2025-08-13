@@ -1,8 +1,8 @@
 // src/scheduler.ts
 import type { Telegraf } from 'telegraf';
-import { Task } from './models/Task';
-import { escapeMdV2 } from './utils/escapeMarkdown';
-import { shiftDueDate } from './utils/time';
+import { Task } from './models/Task.js';
+import { escapeMdV2 } from './utils/escapeMarkdown.js';
+import { shiftDueDate } from './utils/time.js';
 
 const SCHED_INTERVAL_MS = 60 * 1000; // 1 минута
 const LOOKAHEAD_MS = 31 * 24 * 60 * 60 * 1000; // 31 день
