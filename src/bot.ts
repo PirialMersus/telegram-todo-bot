@@ -6,7 +6,7 @@ import { UserSettings } from './models/UserSettings';
 import { generateCalendar } from './utils/calendar';
 import { generateTimeButtons } from './utils/timeButtons';
 import { escapeHtml } from './utils/escapeHtml';
-import {formatInTz, buildUtcFromLocalParts, POPULAR_TZ, shiftDueDate} from './utils/time';
+import { formatInTz, buildUtcFromLocalParts, POPULAR_TZ, shiftDueDate } from './utils/time';
 
 type UserStateStep =
   | 'choosing_text'
@@ -35,8 +35,6 @@ interface UserState {
   tzName?: string;
 }
 
-const bot = new Telegraf<Context>(process.env.BOT_TOKEN!);
-const userStates = new Map<number, UserState>();
 const PAGE_SIZE = 10;
 
 /** Build options for Telegraf methods. */
@@ -60,26 +58,12 @@ async function reply(ctx: Context, text: string, kb?: ReturnType<typeof Markup.i
   await ctx.reply(text, opts as any);
 }
 
-/* -------------- helpers -------------- */
-
-async function getOrCreateUserTz(userId: number, fallbackOffsetGuess?: number): Promise<string | undefined> {
-  let us = await UserSettings.findOne({ userId }).exec();
-  if (us?.timezone) return us.timezone;
-
-  // Если нет TZ — предложим выбор (сначала сохраним пустую запись)
-  if (!us) {
-    us = await UserSettings.create({ userId });
-  }
-  return undefined;
-}
-
 function settingsMenu() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🕒 Часовой пояс', 'settings_tz')],
     [Markup.button.callback('◀️ Назад', 'main_menu')],
   ]);
 }
-
 function mainMenu() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('➕ Новая задача', 'new_task')],
@@ -89,7 +73,6 @@ function mainMenu() {
     [Markup.button.callback('🧹 Удалить все задачи', 'delete_all_tasks')],
   ]);
 }
-
 function reminderButtons() {
   const options = [
     { text: '10 мин', ms: 10 * 60 * 1000 },
@@ -106,13 +89,9 @@ function reminderButtons() {
     [Markup.button.callback('◀️ Назад', 'new_task')],
   ]);
 }
-
 function repeatButtons(selected?: RepeatType | undefined) {
   const mk = (label: string, val?: RepeatType) =>
-    Markup.button.callback(
-      (selected === val ? '✅ ' : '') + label,
-      `repeat_${val ?? 'none'}`
-    );
+    Markup.button.callback((selected === val ? '✅ ' : '') + label, `repeat_${val ?? 'none'}`);
   return Markup.inlineKeyboard([
     [mk('Без повтора', undefined)],
     [mk('Ежедневно', 'daily')],
@@ -121,44 +100,30 @@ function repeatButtons(selected?: RepeatType | undefined) {
     [Markup.button.callback('◀️ Назад', 'repeat_back')],
   ]);
 }
-
-function generateTimeButtonsWithCustom() {
-  return generateTimeButtons();
-}
-
+function generateTimeButtonsWithCustom() { return generateTimeButtons(); }
 function generateCalendarWithCustom(year: number, month: number) {
   const cal = generateCalendar(year, month) as any;
-  try { (cal.reply_markup.inline_keyboard as any).push([Markup.button.callback('📝 Ввести дату вручную', 'custom_date')]); } catch { /* noop */ }
+  try { (cal.reply_markup.inline_keyboard as any).push([Markup.button.callback('📝 Ввести дату вручную', 'custom_date')]); } catch {}
   return cal;
 }
-
-function truncate(s?: string, n = 40) {
-  if (!s) return '';
-  if (s.length <= n) return s;
-  return s.slice(0, n - 1) + '…';
-}
-
+function truncate(s?: string, n = 40) { if (!s) return ''; return s.length <= n ? s : s.slice(0, n - 1) + '…'; }
 function formatReminder(ms?: number) {
   if (!ms) return 'нет';
   const map: Record<number, string> = {
     [10 * 60 * 1000]: '10 минут',
     [30 * 60 * 1000]: '30 минут',
     [60 * 60 * 1000]: '1 час',
-    [3 * 60 * 60 * 1000]: '3 часа',
+    [3 * 60 * 1000 * 60]: '3 часа',
     [24 * 60 * 60 * 1000]: '1 день',
     [7 * 24 * 60 * 60 * 1000]: '1 неделя',
     [30 * 24 * 60 * 60 * 1000]: '1 месяц',
   };
   return map[ms] || `${Math.round((ms ?? 0) / 60000)} мин`;
 }
-
 function buildTaskDetailText(task: any, tzName?: string) {
   const due = task.dueDate ? (tzName ? formatInTz(new Date(task.dueDate), tzName) : new Date(task.dueDate).toLocaleString()) : '—';
   const remind = task.remindBefore ? formatReminder(task.remindBefore) : 'нет';
-  const repeatTxt = task.repeat ? (
-    task.repeat === 'daily' ? 'ежедневно' :
-      task.repeat === 'weekly' ? 'еженедельно' : 'ежемесячно'
-  ) : 'нет';
+  const repeatTxt = task.repeat ? (task.repeat === 'daily' ? 'ежедневно' : task.repeat === 'weekly' ? 'еженедельно' : 'ежемесячно') : 'нет';
   return `<b>Задача</b>\n\n<b>${escapeHtml(task.text)}</b>\n\n📅 Дата: ${escapeHtml(due)}\n🔔 Напомнить: ${escapeHtml(remind)}\n🔁 Повтор: ${escapeHtml(repeatTxt)}\n✅ Выполнена: ${task.done ? 'Да' : 'Нет'}`;
 }
 
@@ -168,11 +133,7 @@ async function renderUserTasks(ctx: Context, notice?: string, page = 0) {
   const tzName = settings?.timezone;
 
   const total = await Task.countDocuments({ userId }).exec();
-  const tasks = await Task.find({ userId })
-    .sort({ dueDate: 1 })
-    .skip(page * PAGE_SIZE)
-    .limit(PAGE_SIZE)
-    .exec() as any[];
+  const tasks = await Task.find({ userId }).sort({ dueDate: 1 }).skip(page * PAGE_SIZE).limit(PAGE_SIZE).exec() as any[];
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (!tasks.length) {
@@ -203,18 +164,14 @@ async function renderUserTasks(ctx: Context, notice?: string, page = 0) {
 async function pushRecent(userId: number, type: RecentType, value: string) {
   value = value.trim();
   if (!value) return;
-  // удалим дубликаты того же значения
   await Recent.deleteMany({ userId, type, value }).exec();
   await Recent.create({ userId, type, value });
-
-  // оставим не более 5
   const recents = await Recent.find({ userId, type }).sort({ createdAt: -1 }).exec();
   if (recents.length > 5) {
     const toDelete = recents.slice(5).map(r => r._id);
     await Recent.deleteMany({ _id: { $in: toDelete } }).exec();
   }
 }
-
 function recentButtons(recs: { value: string }[], type: RecentType) {
   if (!recs.length) return undefined;
   const rows = recs.map(r => [Markup.button.callback(r.value, `recent_${type}_${encodeURIComponent(r.value)}`)]);
@@ -223,18 +180,24 @@ function recentButtons(recs: { value: string }[], type: RecentType) {
   return Markup.inlineKeyboard(rows);
 }
 
-/* -------------- Bot flow -------------- */
-
-export const startBot = (): Telegraf<Context> => {
-  console.log('🤖 Bot starting...');
+/** Создаёт и настраивает бота, но НЕ запускает его (ни polling, ни webhook). */
+export function createBot(): Telegraf<Context> {
+  const bot = new Telegraf<Context>(process.env.BOT_TOKEN!);
+  const userStates = new Map<number, UserState>();
 
   bot.start(async (ctx) => {
     const userId = ctx.from!.id;
 
-    // heuristic: offset guess from telegram date vs server now (в минутах)
     const msgDate = (ctx.message as any)?.date ? (Number((ctx.message as any).date) * 1000) : Date.now();
     const serverNow = Date.now();
-    const offsetGuessMin = Math.round((serverNow - msgDate) / (60 * 1000)); // просто эвристика, можем не использовать
+    const offsetGuessMin = Math.round((serverNow - msgDate) / (60 * 1000));
+
+    async function getOrCreateUserTz(userId: number, _fallbackOffsetGuess?: number): Promise<string | undefined> {
+      let us = await UserSettings.findOne({ userId }).exec();
+      if (us?.timezone) return us.timezone;
+      if (!us) { us = await UserSettings.create({ userId }); }
+      return undefined;
+    }
 
     const tz = await getOrCreateUserTz(userId, offsetGuessMin);
     if (!tz) {
@@ -249,8 +212,7 @@ export const startBot = (): Telegraf<Context> => {
       return;
     }
 
-    const startText = escapeHtml('👋 Привет! Я твой Telegram-планировщик задач.\nЧто будем делать?');
-    await reply(ctx, startText, mainMenu());
+    await reply(ctx, escapeHtml('👋 Привет! Я твой Telegram-планировщик задач.\nЧто будем делать?'), mainMenu());
   });
 
   bot.hears(['🏠 Меню', 'Меню'], async (ctx) => {
@@ -297,27 +259,21 @@ export const startBot = (): Telegraf<Context> => {
     const userId = ctx.from!.id;
     const state = userStates.get(userId);
 
-    // Настройка TZ вручную
     if (state?.step === 'awaiting_timezone_custom' && (ctx.callbackQuery == null)) {
       const tz = ctx.message.text.trim();
       await UserSettings.updateOne({ userId }, { $set: { timezone: tz } }, { upsert: true }).exec();
       state.step = undefined;
       return reply(ctx, escapeHtml(`✅ Часовой пояс установлен: ${tz}`), mainMenu());
     }
-
     if (!state) return;
 
-    // awaiting custom text (простой или после чипса)
     if (state.step === 'awaiting_custom_text') {
       const body = ctx.message.text.trim();
       const finalText = state.textPrefix ? `${state.textPrefix} ${body}` : body;
       state.text = finalText;
-
-      // сохраним recent, если есть тип
       if (state.textPrefix && state.recentType) {
         await pushRecent(userId, state.recentType, body);
       }
-
       state.textPrefix = undefined;
       state.recentType = undefined;
 
@@ -330,7 +286,6 @@ export const startBot = (): Telegraf<Context> => {
       return reply(ctx, text, kb);
     }
 
-    // awaiting custom date
     if (state.step === 'awaiting_custom_date') {
       const match = ctx.message.text.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
       if (!match) return reply(ctx, escapeHtml('⚠️ Неверный формат. Пример: 25.12.2025'));
@@ -340,7 +295,6 @@ export const startBot = (): Telegraf<Context> => {
       return reply(ctx, escapeHtml('🕒 Выбери время:'), generateTimeButtonsWithCustom());
     }
 
-    // awaiting custom time
     if (state.step === 'awaiting_custom_time') {
       if (!state.selectedDate) return reply(ctx, escapeHtml('⚠️ Сначала выберите дату.'));
       const match = ctx.message.text.trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -348,7 +302,6 @@ export const startBot = (): Telegraf<Context> => {
       const h = Number(match[1]), min = Number(match[2]);
       state.selectedDate.hh = h; state.selectedDate.mm = min;
 
-      // Проверка "прошлого": нам нужна TZ пользователя
       const settings = await UserSettings.findOne({ userId }).exec();
       const tzName = settings?.timezone || 'UTC';
       const dt = buildUtcFromLocalParts(tzName, state.selectedDate.y, state.selectedDate.m, state.selectedDate.d, h, min);
@@ -360,7 +313,6 @@ export const startBot = (): Telegraf<Context> => {
       return reply(ctx, escapeHtml('🔁 Повтор задачи?'), repeatButtons(state.repeat));
     }
 
-    // awaiting custom reminder (minutes)
     if (state.step === 'awaiting_custom_reminder') {
       const n = Number(ctx.message.text.trim());
       if (!Number.isFinite(n) || n < 0) return reply(ctx, escapeHtml('⚠️ Введите число минут (например: 15)'));
@@ -378,7 +330,6 @@ export const startBot = (): Telegraf<Context> => {
     await ctx.answerCbQuery();
     const userId = ctx.from!.id;
 
-    // ensure tz set
     const settings = await UserSettings.findOne({ userId }).exec();
     if (!settings?.timezone) {
       const kb = Markup.inlineKeyboard([
@@ -400,47 +351,34 @@ export const startBot = (): Telegraf<Context> => {
     await reply(ctx, escapeHtml('📝 Выбери текст задачи или введите вручную:'), kb);
   });
 
-  // chip handlers
+  // chips + recents
   bot.action('text_chip_call', async (ctx) => {
     await ctx.answerCbQuery();
     const s = userStates.get(ctx.from!.id) || {};
-    s.step = 'awaiting_custom_text';
-    s.textPrefix = 'Позвонить';
-    s.recentType = 'call';
+    s.step = 'awaiting_custom_text'; s.textPrefix = 'Позвонить'; s.recentType = 'call';
     userStates.set(ctx.from!.id, s);
-
-    // show recent
     const recs = await Recent.find({ userId: ctx.from!.id, type: 'call' }).sort({ createdAt: -1 }).limit(5).exec();
     const kb = recentButtons(recs, 'call') || Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'cancel_task')]]);
     await reply(ctx, escapeHtml('Кому позвонить? Выберите из недавних или введите вручную:'), kb);
   });
-
   bot.action('text_chip_buy', async (ctx) => {
     await ctx.answerCbQuery();
     const s = userStates.get(ctx.from!.id) || {};
-    s.step = 'awaiting_custom_text';
-    s.textPrefix = 'Купить';
-    s.recentType = 'buy';
+    s.step = 'awaiting_custom_text'; s.textPrefix = 'Купить'; s.recentType = 'buy';
     userStates.set(ctx.from!.id, s);
-
     const recs = await Recent.find({ userId: ctx.from!.id, type: 'buy' }).sort({ createdAt: -1 }).limit(5).exec();
     const kb = recentButtons(recs, 'buy') || Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'cancel_task')]]);
     await reply(ctx, escapeHtml('Что купить? Выберите из недавних или введите вручную:'), kb);
   });
-
   bot.action('text_chip_meet', async (ctx) => {
     await ctx.answerCbQuery();
     const s = userStates.get(ctx.from!.id) || {};
-    s.step = 'awaiting_custom_text';
-    s.textPrefix = 'Встретиться';
-    s.recentType = 'meet';
+    s.step = 'awaiting_custom_text'; s.textPrefix = 'Встретиться'; s.recentType = 'meet';
     userStates.set(ctx.from!.id, s);
-
     const recs = await Recent.find({ userId: ctx.from!.id, type: 'meet' }).sort({ createdAt: -1 }).limit(5).exec();
     const kb = recentButtons(recs, 'meet') || Markup.inlineKeyboard([[Markup.button.callback('◀️ Отмена', 'cancel_task')]]);
     await reply(ctx, escapeHtml('С кем встретиться? Выберите из недавних или введите вручную:'), kb);
   });
-
   bot.action('custom_text', async (ctx) => {
     await ctx.answerCbQuery();
     const s = userStates.get(ctx.from!.id) || {};
@@ -448,11 +386,9 @@ export const startBot = (): Telegraf<Context> => {
     userStates.set(ctx.from!.id, s);
     await reply(ctx, escapeHtml('✏️ Введи текст задачи:'));
   });
-
-  // recent selection (callback payload: recent_<type>_<encoded value>)
   bot.action(/recent_(call|buy|meet)_(.+)/, async (ctx) => {
     await ctx.answerCbQuery();
-    const [, type, enc] = ctx.match as unknown as string[];
+    const [, , enc] = ctx.match as unknown as string[];
     const val = decodeURIComponent(enc);
     const userId = ctx.from!.id;
     const s = userStates.get(userId);
@@ -464,7 +400,6 @@ export const startBot = (): Telegraf<Context> => {
       [Markup.button.callback('◀️ Отменить', 'cancel_task')],
     ]));
   });
-
   bot.action('recent_custom', async (ctx) => {
     await ctx.answerCbQuery();
     const s = userStates.get(ctx.from!.id) || {};
@@ -473,7 +408,7 @@ export const startBot = (): Telegraf<Context> => {
     await reply(ctx, escapeHtml('✏️ Введите значение вручную:'));
   });
 
-  // ask reminder handlers
+  // ask reminder
   bot.action('ask_reminder_yes', async (ctx) => {
     await ctx.answerCbQuery();
     const state = userStates.get(ctx.from!.id);
@@ -481,7 +416,6 @@ export const startBot = (): Telegraf<Context> => {
     state.step = 'choosing_reminder';
     await editOrReply(ctx, escapeHtml('⏰ За сколько до задачи напомнить?'), reminderButtons());
   });
-
   bot.action('ask_reminder_no', async (ctx) => {
     await ctx.answerCbQuery();
     const state = userStates.get(ctx.from!.id);
@@ -493,8 +427,6 @@ export const startBot = (): Telegraf<Context> => {
     state.currentMonth = now.getMonth();
     await editOrReply(ctx, escapeHtml('📅 Выберите дату:'), generateCalendarWithCustom(state.currentYear, state.currentMonth));
   });
-
-  // predefined reminder
   bot.action(/remind_(\d+)/, async (ctx) => {
     await ctx.answerCbQuery();
     const remindMs = parseInt(String((ctx.match as any)[1]));
@@ -507,7 +439,6 @@ export const startBot = (): Telegraf<Context> => {
     state.currentMonth = now.getMonth();
     await editOrReply(ctx, escapeHtml('📅 Выберите дату:'), generateCalendarWithCustom(state.currentYear, state.currentMonth));
   });
-
   bot.action('custom_reminder', async (ctx) => {
     await ctx.answerCbQuery();
     const state = userStates.get(ctx.from!.id);
@@ -516,7 +447,7 @@ export const startBot = (): Telegraf<Context> => {
     await reply(ctx, escapeHtml('📝 Введите, пожалуйста, время до напоминания в минутах (например: 15)'));
   });
 
-  // calendar navigation
+  // calendar
   bot.action('custom_date', async (ctx) => {
     await ctx.answerCbQuery();
     const state = userStates.get(ctx.from!.id);
@@ -524,19 +455,16 @@ export const startBot = (): Telegraf<Context> => {
     state.step = 'awaiting_custom_date';
     await reply(ctx, escapeHtml('📅 Введите дату в формате ДД.ММ.ГГГГ (например: 25.12.2025)'));
   });
-
   bot.action(/cal_(prev|next)_(\d+)_(\d+)/, async (ctx) => {
     await ctx.answerCbQuery();
     const [, dir, yearStr, monthStr] = ctx.match as unknown as string[];
-    let year = parseInt(yearStr);
-    let month = parseInt(monthStr);
+    let year = parseInt(yearStr), month = parseInt(monthStr);
     month = dir === 'prev' ? month - 1 : month + 1;
     if (month < 0) { month = 11; year--; }
     if (month > 11) { month = 0; year++; }
     const state = userStates.get(ctx.from!.id);
     if (!state) return;
-    state.currentYear = year;
-    state.currentMonth = month;
+    state.currentYear = year; state.currentMonth = month;
     try {
       const cal = generateCalendarWithCustom(year, month) as any;
       await ctx.editMessageReplyMarkup((cal as any).reply_markup as any);
@@ -544,7 +472,6 @@ export const startBot = (): Telegraf<Context> => {
       await reply(ctx, escapeHtml('📅'), generateCalendarWithCustom(year, month));
     }
   });
-
   bot.action(/cal_day_(\d+)_(\d+)_(\d+)/, async (ctx) => {
     await ctx.answerCbQuery();
     const [, yearStr, monthStr, dayStr] = ctx.match as unknown as string[];
@@ -556,16 +483,15 @@ export const startBot = (): Telegraf<Context> => {
     await editOrReply(ctx, escapeHtml('🕒 Выберите время:'), generateTimeButtonsWithCustom());
   });
 
-  // time buttons
-  bot.action(/time_(\d{2}:\d{2})/, async (ctx) => {
+  // time
+  bot.action(/time_(\d{2}):(\d{2})/, async (ctx) => {
     await ctx.answerCbQuery();
-    const [hours, minutes] = String((ctx.match as any)[1]).split(':').map(Number);
+    const hours = parseInt(String((ctx.match as any)[1]));
+    const minutes = parseInt(String((ctx.match as any)[2]));
     const state = userStates.get(ctx.from!.id);
     if (!state || !state.selectedDate) return;
-    state.selectedDate.hh = hours;
-    state.selectedDate.mm = minutes;
+    state.selectedDate.hh = hours; state.selectedDate.mm = minutes;
 
-    // проверка прошлой даты по TZ
     const settings = await UserSettings.findOne({ userId: ctx.from!.id }).exec();
     const tzName = settings?.timezone || 'UTC';
     const dt = buildUtcFromLocalParts(tzName, state.selectedDate.y, state.selectedDate.m, state.selectedDate.d, hours, minutes);
@@ -576,7 +502,6 @@ export const startBot = (): Telegraf<Context> => {
     state.step = 'choosing_repeat';
     await editOrReply(ctx, escapeHtml('🔁 Повтор задачи?'), repeatButtons(state.repeat));
   });
-
   bot.action('custom_time', async (ctx) => {
     await ctx.answerCbQuery();
     const state = userStates.get(ctx.from!.id);
@@ -585,21 +510,24 @@ export const startBot = (): Telegraf<Context> => {
     await reply(ctx, escapeHtml('⌨️ Введите время в формате ЧЧ:ММ (например: 09:15)'));
   });
 
-  // repeat handlers
+  // repeat + save
   bot.action(/repeat_(.+)/, async (ctx) => {
     await ctx.answerCbQuery();
     const val = String((ctx.match as any)[1]);
     const state = userStates.get(ctx.from!.id);
     if (!state) return;
-    if (val === 'none') state.repeat = undefined; else state.repeat = val as RepeatType;
-    state.step = 'confirm_task';
-    // show confirmation: build UTC dueDate from selectedDate + tz
+    state.repeat = val === 'none' ? undefined : (val as RepeatType);
+
     const settings = await UserSettings.findOne({ userId: ctx.from!.id }).exec();
     const tzName = settings?.timezone || 'UTC';
     if (!state.selectedDate || state.selectedDate.hh == null || state.selectedDate.mm == null) {
       return reply(ctx, escapeHtml('⚠️ Что-то не так с датой/временем. Начните заново.'), mainMenu());
     }
-    const dueUtc = buildUtcFromLocalParts(tzName, state.selectedDate.y, state.selectedDate.m, state.selectedDate.d, state.selectedDate.hh, state.selectedDate.mm);
+    const dueUtc = buildUtcFromLocalParts(
+      tzName,
+      state.selectedDate.y, state.selectedDate.m, state.selectedDate.d,
+      state.selectedDate.hh, state.selectedDate.mm
+    );
     const remindText = formatReminder(state.remindBefore);
     const repeatText = state.repeat ? (state.repeat === 'daily' ? 'ежедневно' : state.repeat === 'weekly' ? 'еженедельно' : 'ежемесячно') : 'нет';
     const text = `<b>📝 ${escapeHtml(state.text)}</b>\n📅 ${escapeHtml(formatInTz(dueUtc, tzName))}\n🔔 Напоминание: ${escapeHtml(remindText)}\n🔁 Повтор: ${escapeHtml(repeatText)}`;
@@ -610,7 +538,6 @@ export const startBot = (): Telegraf<Context> => {
     await reply(ctx, text, kb);
   });
 
-  // save task
   bot.action('save_task', async (ctx) => {
     await ctx.answerCbQuery();
     const state = userStates.get(ctx.from!.id);
@@ -637,9 +564,7 @@ export const startBot = (): Telegraf<Context> => {
     });
     await (task as any).save();
 
-    // если это был чипс — сохраним recent (value — часть после префикса)
     if (state.textPrefix && state.recentType) {
-      // вычленим сущность (часть после префикса)
       const raw = state.text.replace(state.textPrefix, '').trim();
       await pushRecent(userId, state.recentType, raw);
     }
@@ -654,20 +579,9 @@ export const startBot = (): Telegraf<Context> => {
     await editOrReply(ctx, escapeHtml('❌ Создание задачи отменено.'), mainMenu());
   });
 
-  // my tasks
-  bot.action('my_tasks', async (ctx) => {
-    await ctx.answerCbQuery();
-    await renderUserTasks(ctx);
-  });
+  bot.action('my_tasks', async (ctx) => { await ctx.answerCbQuery(); await renderUserTasks(ctx); });
+  bot.action(/tasks_page_(\d+)/, async (ctx) => { await ctx.answerCbQuery(); const page = parseInt(String((ctx.match as any)[1])); await renderUserTasks(ctx, undefined, page); });
 
-  // pagination
-  bot.action(/tasks_page_(\d+)/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const page = parseInt(String((ctx.match as any)[1]));
-    await renderUserTasks(ctx, undefined, page);
-  });
-
-  // view task detail
   bot.action(/task_view_(.+)/, async (ctx) => {
     await ctx.answerCbQuery();
     const id = String((ctx.match as any)[1]);
@@ -685,7 +599,6 @@ export const startBot = (): Telegraf<Context> => {
     await editOrReply(ctx, txt, kb);
   });
 
-  // toggle done
   bot.action(/task_done_(.+)/, async (ctx) => {
     await ctx.answerCbQuery();
     const id = String((ctx.match as any)[1]);
@@ -693,7 +606,6 @@ export const startBot = (): Telegraf<Context> => {
     if (!task) return ctx.answerCbQuery('Задача не найдена.');
     if (task.userId !== ctx.from!.id) return ctx.answerCbQuery('Недостаточно прав.');
 
-    // Если повтор и пометка выполнено -> создаём следующий экземпляр
     if (!task.done && task.repeat) {
       const nextDue = shiftDueDate(task.dueDate, task.repeat);
       await Task.create({
@@ -722,7 +634,6 @@ export const startBot = (): Telegraf<Context> => {
     await editOrReply(ctx, txt, kb);
   });
 
-  // delete single task
   bot.action(/task_delete_(.+)/, async (ctx) => {
     await ctx.answerCbQuery();
     const id = String((ctx.match as any)[1]);
@@ -734,7 +645,6 @@ export const startBot = (): Telegraf<Context> => {
     await renderUserTasks(ctx, escapeHtml('Задача удалена.'));
   });
 
-  // delete all tasks (confirm)
   bot.action('delete_all_tasks', async (ctx) => {
     await ctx.answerCbQuery();
     const kb = Markup.inlineKeyboard([
@@ -744,12 +654,7 @@ export const startBot = (): Telegraf<Context> => {
     ]);
     await editOrReply(ctx, escapeHtml('⚠️ Вы уверены, что хотите удалить все ваши задачи? Это действие нельзя отменить.'), kb);
   });
-
-  bot.action('confirm_delete_all_no', async (ctx) => {
-    await ctx.answerCbQuery();
-    await renderUserTasks(ctx, escapeHtml('Операция отменена.'));
-  });
-
+  bot.action('confirm_delete_all_no', async (ctx) => { await ctx.answerCbQuery(); await renderUserTasks(ctx, escapeHtml('Операция отменена.')); });
   bot.action('confirm_delete_all_yes', async (ctx) => {
     await ctx.answerCbQuery();
     const userId = ctx.from!.id;
@@ -757,15 +662,11 @@ export const startBot = (): Telegraf<Context> => {
     await editOrReply(ctx, escapeHtml('✅ Все ваши задачи удалены.'), mainMenu());
   });
 
-  // today
   bot.action('today', async (ctx) => {
     await ctx.answerCbQuery();
     const userId = ctx.from!.id;
     const settings = await UserSettings.findOne({ userId }).exec();
     const tzName = settings?.timezone || 'UTC';
-    const startLocal = new Date();
-    // вычислим start и end на основе TZ
-    // проще: используем dayjs в utils при отображении, но тут запрос к БД делаем по UTC-диапазону:
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(start); end.setDate(end.getDate() + 1);
     const tasks = await Task.find({ userId, dueDate: { $gte: start, $lt: end } }).sort({ dueDate: 1 }).exec() as any[];
@@ -779,7 +680,6 @@ export const startBot = (): Telegraf<Context> => {
     await reply(ctx, txt, mainMenu());
   });
 
-  // stats
   bot.action('stats', async (ctx) => {
     await ctx.answerCbQuery();
     const userId = ctx.from!.id;
@@ -790,27 +690,10 @@ export const startBot = (): Telegraf<Context> => {
     await reply(ctx, statText, mainMenu());
   });
 
-  // main menu callback
   bot.action('main_menu', async (ctx) => {
     await ctx.answerCbQuery();
     await editOrReply(ctx, escapeHtml('📋 Главное меню:'), mainMenu());
   });
 
-  if (!process.env.WEBHOOK_URL) {
-    // Только в режиме разработки / локального запуска — включаем long-polling
-    (async () => {
-      try {
-        await bot.launch();
-        console.log('✅ Bot launched (long polling)');
-      } catch (err) {
-        console.error('Bot launch error:', err);
-      }
-    })();
-  } else {
-    console.log('⚙️ WEBHOOK mode detected — bot will not start long-polling');
-  }
-  console.log('✅ Bot launched');
   return bot;
-};
-
-export default bot;
+}
