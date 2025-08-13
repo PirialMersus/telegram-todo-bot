@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
+    "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "dist",
     "rootDir": "src",
@@ -10,14 +10,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "strict": true
-  },
-  "ts-node": {
-    "esm": true,
-    "transpileOnly": true,
-    "compilerOptions": {
-      "module": "NodeNext",
-      "moduleResolution": "NodeNext"
-    }
   },
   "include": ["src/**/*"]
 }
