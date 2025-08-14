@@ -19,6 +19,9 @@ const RecentSchema = new Schema<IRecentDocument>({
   createdAt: { type: Date, default: Date.now },
 });
 
+// Быстрый выбор по типу и дате
 RecentSchema.index({ userId: 1, type: 1, createdAt: -1 });
+// Не допускаем дубль одинакового значения
+RecentSchema.index({ userId: 1, type: 1, value: 1 }, { unique: true });
 
 export const Recent = model('Recent', RecentSchema) as Model<IRecentDocument>;

@@ -11,7 +11,8 @@ export interface ITask {
   repeat?: RepeatType;
   category?: string;
   done: boolean;
-  reminded: boolean;
+  reminded: boolean;        // напоминание ДО due было отправлено
+  notifiedAtDue: boolean;   // уведомление В МОМЕНТ due было отправлено
   spawnedNext: boolean;     // чтобы не создавать дубликаты следующего экземпляра
   createdAt: Date;
 }
@@ -27,12 +28,15 @@ const TaskSchema = new Schema<ITaskDocument>({
   category: { type: String },
   done: { type: Boolean, default: false },
   reminded: { type: Boolean, default: false },
+  notifiedAtDue: { type: Boolean, default: false },
   spawnedNext: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
 });
 
 // Индексы
 TaskSchema.index({ reminded: 1, dueDate: 1 });
+TaskSchema.index({ notifiedAtDue: 1, dueDate: 1 });
 TaskSchema.index({ userId: 1, dueDate: 1 });
+TaskSchema.index({ done: 1, dueDate: 1 });
 
 export const Task = model('Task', TaskSchema) as Model<ITaskDocument>;

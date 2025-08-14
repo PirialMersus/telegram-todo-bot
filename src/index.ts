@@ -16,14 +16,17 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
   const bot = createBot();
 
   if (WEBHOOK_BASE) {
-    // === WEBHOOK MODE (Render/production) ===
+    // === WEBHOOK MODE ===
     const app = express();
     app.use(express.json({ limit: '10mb' }));
 
     const webhookPath = '/webhook';
     const webhookUrl = `${WEBHOOK_BASE}${webhookPath}`;
 
-    await bot.telegram.setWebhook(webhookUrl, { secret_token: SECRET_TOKEN });
+    await bot.telegram.setWebhook(webhookUrl, {
+      secret_token: SECRET_TOKEN,
+      drop_pending_updates: true,   // <— отбросить старые апдейты
+    });
 
     app.get('/health', (_req: Request, res: Response) => res.status(200).send('OK'));
 
@@ -47,16 +50,14 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
       console.log(`→ Webhook set to: ${webhookUrl}`);
     });
 
-    // start scheduler in webhook mode as well
     startScheduler(bot);
   } else {
-    // === LONG POLLING MODE (локально/без публичного URL) ===
+    // === LONG POLLING MODE ===
     await (async () => {
-      await bot.launch();
+      await (bot as any).launch();
       console.log('🤖 Bot launched in LONG POLLING mode');
     })();
 
-    // start scheduler when using polling
     startScheduler(bot);
 
     process.once('SIGINT', () => (bot as any).stop('SIGINT'));

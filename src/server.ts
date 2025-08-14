@@ -13,7 +13,6 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
 
   const bot = createBot();
 
-  // Настраиваем вебхук (Telegram будет слать апдейты сюда)
   if (!WEBHOOK_BASE) {
     console.error('WEBHOOK_URL is not set');
     process.exit(1);
@@ -23,6 +22,7 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
 
   await bot.telegram.setWebhook(webhookUrl, {
     secret_token: SECRET_TOKEN,
+    drop_pending_updates: true,  // <—
   });
 
   const app = express();
@@ -30,13 +30,10 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
 
   app.get('/health', (_req, res) => res.status(200).send('OK'));
 
-  // Вебхук: проверяем секрет и передаём апдейт в telegraf
   app.post(webhookPath, (req, res) => {
     const headerSecret = req.get('x-telegram-bot-api-secret-token');
-    if (headerSecret !== SECRET_TOKEN) {
-      return res.status(401).send('Unauthorized');
-    }
-    // Передаём апдейт в Telegraf
+    if (headerSecret !== SECRET_TOKEN) return res.status(401).send('Unauthorized');
+
     (async () => {
       try {
         await (bot as any).handleUpdate(req.body);
@@ -44,6 +41,7 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
         console.error('handleUpdate error', err);
       }
     })();
+
     res.status(200).send('OK');
   });
 
@@ -52,3 +50,4 @@ const SECRET_TOKEN = process.env.WEBHOOK_SECRET || 'dev_secret';
     console.log(`→ Webhook set to: ${webhookUrl}`);
   });
 })();
+
