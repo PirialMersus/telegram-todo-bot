@@ -106,6 +106,7 @@ export function renderDraft(draft: {
   const dateChanged = origDueDate !== null || origDueTime !== null ? ((draft.dueDate ?? null) !== origDueDate || (draft.dueTime ?? null) !== origDueTime) : false;
   const reminderChanged = origReminderPreset !== null ? ((draft.reminderPreset ?? null) !== origReminderPreset || (draft.reminderDate ?? null) !== origReminderDate || (draft.reminderTime ?? null) !== origReminderTime) : false;
   const repeatChanged = origRepeat !== null ? ((draft.repeat ?? null) !== origRepeat || (draft.repeatEveryMinutes ?? null) !== origRepeatMins) : false;
+
   const typeChanged = original ? ((draft.type ?? null) !== (original.type ?? null)) : false;
 
   const suf = (ch: boolean) => ch ? ' ✳️' : '';
