@@ -1,7 +1,7 @@
-// src/bot/scheduler.ts
+// src/scheduler.ts
 import { Telegraf } from 'telegraf';
-import { getCollections } from '../db';
-import { toLocalDateStr, addMinutes } from './utils';
+import { getCollections } from './db';
+import { toLocalDateStr, addMinutes } from './bot/utils';
 
 function escapeHtml(s?: string) {
   if (!s) return '';
@@ -23,7 +23,6 @@ export function startReminderLoop(bot: Telegraf) {
           { reminderSentAt: null },
           { reminderSentAt: { $exists: false } },
           { repeat: 'custom-mins' },
-          { repeat: { $exists: true, $ne: 'none' } },
         ],
       })
       .limit(200)
@@ -52,50 +51,34 @@ export function startReminderLoop(bot: Telegraf) {
 
         const sentAt = new Date();
 
-        const repeat = t.repeat || 'none';
-        if (repeat && repeat !== 'none') {
-          let interval: number | null = null;
-          if (repeat === 'custom-mins' && t.repeatEveryMinutes && Number(t.repeatEveryMinutes) > 0) {
-            interval = Math.max(1, Number(t.repeatEveryMinutes));
-          } else if (repeat === 'hourly') {
-            interval = 60;
-          } else if (repeat === 'daily') {
-            interval = 24 * 60;
-          } else if (repeat === 'weekly') {
-            interval = 7 * 24 * 60;
-          } else if (repeat === 'monthly') {
-            interval = 30 * 24 * 60;
-          } else if (repeat === 'yearly') {
-            interval = 365 * 24 * 60;
+        if (t.repeat === 'custom-mins' && t.repeatEveryMinutes && Number(t.repeatEveryMinutes) > 0) {
+          const interval = Math.max(1, Number(t.repeatEveryMinutes));
+          const baseReminder = t.reminderAt ? new Date(t.reminderAt) : sentAt;
+          let next = addMinutes(baseReminder, interval);
+          if (next.getTime() <= sentAt.getTime()) {
+            next = addMinutes(sentAt, interval);
           }
-
-          if (interval) {
-            const baseReminder = t.reminderAt ? new Date(t.reminderAt) : sentAt;
-            let next = addMinutes(baseReminder, interval);
-            if (next.getTime() <= sentAt.getTime()) {
-              next = addMinutes(sentAt, interval);
-            }
-            const res = await tasks.updateOne(
-              { _id: t._id },
-              { $set: { reminderAt: next, reminderSentAt: sentAt, updatedAt: sentAt } }
-            );
-            if (!res.matchedCount) {
-              console.error('Failed to match task for repeating update', String(t._id), 'userId:', t.userId);
-            } else {
-              console.log('Reminder sent (repeating). Next at', next.toISOString(), 'task', String(t._id));
-            }
-            continue;
+          const res = await tasks.updateOne(
+            { _id: t._id },
+            { $set: { reminderAt: next, reminderSentAt: sentAt, updatedAt: sentAt } }
+          );
+          if (!res.matchedCount) {
+            console.error('Failed to match task for repeating update', String(t._id), 'userId:', t.userId);
+          } else if (!res.modifiedCount) {
+            console.error('Task update did not modify document (maybe identical). task:', String(t._id));
+          } else {
+            console.log('Reminder sent (repeating). Next at', next.toISOString(), 'task', String(t._id));
           }
-        }
-
-        const res = await tasks.updateOne(
-          { _id: t._id },
-          { $set: { reminderSentAt: sentAt, updatedAt: sentAt } }
-        );
-        if (!res.matchedCount) {
-          console.error('Failed to mark one-shot reminder as sent', String(t._id), 'userId:', t.userId);
         } else {
-          console.log('Reminder sent (one-shot). task', String(t._id));
+          const res = await tasks.updateOne(
+            { _id: t._id },
+            { $set: { reminderSentAt: sentAt, updatedAt: sentAt } }
+          );
+          if (!res.matchedCount) {
+            console.error('Failed to mark one-shot reminder as sent', String(t._id), 'userId:', t.userId);
+          } else {
+            console.log('Reminder sent (one-shot). task', String(t._id));
+          }
         }
       } catch (sendErr) {
         console.error('Reminder send/update error', sendErr);
