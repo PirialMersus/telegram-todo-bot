@@ -146,6 +146,7 @@ export async function promptRepeat(ctx: any) {
 }
 export async function promptConfirm(ctx: any) {
   pushStep(ctx, 'confirm');
+
   const s = ctx.session as SessionData;
   if (!s.draft && s.editingTaskId) {
     try {
