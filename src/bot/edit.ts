@@ -606,7 +606,7 @@ export function registerEditHandlers(bot: Telegraf<any>) {
     s.timePicker = null;
     s.originalTask = t;
     const markers = computeMarkers(s);
-    await safeEditOrReply(ctx, `Редактирование задачи:\n\n${renderDraft(s.draft, t)}`, editMenuKb(id, markers));
+    await safeEditOrReply(ctx, `Редактирование задачи:\n\n${renderDraft(s.draft ?? {}, t)}`, editMenuKb(id, markers));
   });
   bot.action(/^tsk:status:([a-f0-9]{24})$/, async (ctx) => {
     const id = ctx.match[1];

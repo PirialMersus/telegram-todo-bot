@@ -66,7 +66,7 @@ export function registerNavigationHandlers(bot: Telegraf<any>) {
     }
     if (s.mode === 'editing' && s.editingTaskId) {
       const markers = (await import('./edit')).computeMarkers(s);
-      await safeEditOrReply(ctx, `Редактирование задачи:\n\n${(await import('./format')).renderDraft(s.draft, s.originalTask)}`, editMenuKb(String(s.editingTaskId), markers));
+      await safeEditOrReply(ctx, `Редактирование задачи:\n\n${(await import('./format')).renderDraft(s.draft ?? {}, s.originalTask)}`, editMenuKb(String(s.editingTaskId), markers));
       return;
     }
     if (s.returnTo && typeof s.returnTo === 'string') {
