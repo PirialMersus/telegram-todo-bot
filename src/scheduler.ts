@@ -13,9 +13,10 @@ const HEALTHCHECK_URL =
   process.env.HEALTHCHECK_URL ||
   process.env.HEALTHCHECKS_URL ||
   '';
+const SHOULD_PING_HEALTHCHECKS = process.env.NODE_ENV === 'production';
 
 function pingHealthcheck() {
-  if (!HEALTHCHECK_URL) return;
+  if (!SHOULD_PING_HEALTHCHECKS || !HEALTHCHECK_URL) return;
   try {
     https.get(HEALTHCHECK_URL).on('error', () => {});
   } catch {}
@@ -49,9 +50,11 @@ export function startReminderLoop(bot: Telegraf) {
           continue;
         }
 
-        const title = escapeHtml(t.title || 'Без названия');
-        const when = escapeHtml(toLocalDateStr(t.dueAt));
         const nowTime = new Date();
+        const title = escapeHtml(t.title || 'Без названия');
+        const when = escapeHtml(
+          toLocalDateStr(t.repeat === 'custom-mins' ? nowTime : t.dueAt)
+        );
 
         let text: string;
         if (t.dueAt && new Date(t.dueAt).getTime() <= nowTime.getTime()) {

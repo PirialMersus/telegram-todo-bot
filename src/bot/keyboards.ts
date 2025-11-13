@@ -141,19 +141,24 @@ export function taskActionKb(taskId: string, done: boolean) {
   ]);
 }
 
-export function editMenuKb(taskId: string, markers?: { title?: boolean; date?: boolean; reminder?: boolean; repeat?: boolean; type?: boolean }) {
+export function editMenuKb(
+  taskId: string,
+  markers?: { title?: boolean; date?: boolean; time?: boolean; reminder?: boolean; repeat?: boolean; type?: boolean }
+) {
   const m = (flag?: boolean) => (flag ? ' ✳️' : '');
   const rows: any[] = [
     [Markup.button.callback(`✏️ Изменить название${m(markers?.title)}`, `edit:title:${taskId}`)],
     [Markup.button.callback(`📅 Изменить дату${m(markers?.date)}`, `edit:date:${taskId}`)],
-    [Markup.button.callback(`⏰ Изменить время${m(markers?.date)}`, `edit:time:${taskId}`)],
+    [Markup.button.callback(`⏰ Изменить время${m(markers?.time)}`, `edit:time:${taskId}`)],
     [Markup.button.callback(`🔔 Изменить напоминание${m(markers?.reminder)}`, `edit:reminder:${taskId}`)],
     [Markup.button.callback(`🔁 Изменить повтор${m(markers?.repeat)}`, `edit:repeat:${taskId}`)],
-    [Markup.button.callback(`🔁 Сменить статус`, `tsk:status:${taskId}`)],
+    [Markup.button.callback('🔁 Сменить статус', `tsk:status:${taskId}`)],
   ];
-  const anyChanged = markers && (markers.title || markers.date || markers.reminder || markers.repeat || markers.type);
+  const anyChanged =
+    !!markers &&
+    (markers.title || markers.date || markers.time || markers.reminder || markers.repeat || markers.type);
   if (anyChanged) {
-    rows.push([Markup.button.callback(`✅ Сохранить изменения`, `edit:save:${taskId}`)]);
+    rows.push([Markup.button.callback('✅ Сохранить изменения', `edit:save:${taskId}`)]);
   }
   rows.push([BACK_BTN, CANCEL_BTN]);
   return Markup.inlineKeyboard(rows);
