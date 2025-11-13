@@ -1,11 +1,24 @@
 // src/scheduler.ts
 import { Telegraf } from 'telegraf';
+import https from 'https';
 import { getCollections } from './db';
 import { toLocalDateStr, addMinutes } from './bot/utils';
 
 function escapeHtml(s?: string) {
   if (!s) return '';
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const HEALTHCHECK_URL =
+  process.env.HEALTHCHECK_URL ||
+  process.env.HEALTHCHECKS_URL ||
+  '';
+
+function pingHealthcheck() {
+  if (!HEALTHCHECK_URL) return;
+  try {
+    https.get(HEALTHCHECK_URL).on('error', () => {});
+  } catch {}
 }
 
 export function startReminderLoop(bot: Telegraf) {
@@ -84,14 +97,17 @@ export function startReminderLoop(bot: Telegraf) {
         console.error('Reminder send/update error', sendErr);
         try {
           const { tasks } = getCollections();
-          await tasks.updateOne({ _id: (sendErr && (sendErr as any)._id) || null }, { $set: { updatedAt: new Date() } });
+          await tasks.updateOne(
+            { _id: (sendErr && (sendErr as any)._id) || null },
+            { $set: { updatedAt: new Date() } }
+          );
         } catch (uErr) {
           console.error('Reminder update fallback error', uErr);
         }
       }
     }
 
-    await (getCollections().tasks).updateMany(
+    await getCollections().tasks.updateMany(
       { dueAt: { $lt: now }, status: 'active' },
       { $set: { status: 'overdue', updatedAt: new Date() } }
     );
@@ -102,6 +118,7 @@ export function startReminderLoop(bot: Telegraf) {
     running = true;
     try {
       await tickBody();
+      pingHealthcheck();
     } catch (err) {
       console.error('Reminder loop error', err);
     } finally {
@@ -191,7 +208,10 @@ export function startMorningDigestLoop(bot: Telegraf) {
 
         const text = `📋 Список задач на сегодня:\n\n${lines.join('\n\n')}`;
         try {
-          await bot.telegram.sendMessage(group._id, text, { parse_mode: 'HTML', disable_notification: true });
+          await bot.telegram.sendMessage(group._id, text, {
+            parse_mode: 'HTML',
+            disable_notification: true,
+          });
         } catch {}
       }
     } catch {}
