@@ -1,5 +1,6 @@
 // src/index.ts
 import 'dotenv/config';
+import http from 'http';
 import { Telegraf } from 'telegraf';
 import { sessionMiddleware } from './session';
 import { mountBot } from './bot/index';
@@ -11,7 +12,26 @@ if (!token) throw new Error('BOT_TOKEN/TELEGRAM_BOT_TOKEN is missing');
 
 let bot: Telegraf | null = null;
 
+function startHttpServer() {
+  const port = Number(process.env.PORT || 3000);
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('ok');
+    } else {
+      res.statusCode = 404;
+      res.end('not found');
+    }
+  });
+
+  server.listen(port, () => {
+    console.log(`HTTP health server listening on ${port}`);
+  });
+}
+
 async function bootstrap() {
+  startHttpServer();
   await connectDB();
 
   bot = new Telegraf(token);
