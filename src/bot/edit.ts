@@ -21,57 +21,37 @@ import {
   composeTitle,
   mapReminderLabel,
   mapRepeatLabelVal,
+  toLocalDateStr,
 } from './utils';
 import { getCollections, ObjectId, pushRecentTitle, getRecentTitles } from '../db';
 import { renderDraft, renderTask } from './format';
 import { saveTaskFromDraft } from './saveTask';
 
 export function computeMarkers(s: SessionData | null | undefined) {
-  const out = { title: false, date: false, time: false, reminder: false, repeat: false, type: false };
+  const out = { title: false, date: false, reminder: false, repeat: false, type: false };
   if (!s) return out;
   const d = s.draft;
   const orig = (s as any).originalTask ?? null;
   if (!d || !orig) return out;
-
   const displayTitle = composeTitle(d.type as any, d.title || '');
-  const origTitle = composeTitle(orig.type, orig.title || '');
-  const titleChanged = displayTitle !== origTitle;
-
-  const origDueAt = orig.dueAt ? new Date(orig.dueAt) : null;
-  const origDueDate = origDueAt ? origDueAt.toISOString().slice(0, 10) : null;
-  const origDueTime = origDueAt
-    ? `${String(origDueAt.getHours()).padStart(2, '0')}:${String(origDueAt.getMinutes()).padStart(2, '0')}`
-    : null;
-
-  const dateChanged = (d.dueDate ?? null) !== origDueDate;
-  const timeChanged = (d.dueTime ?? null) !== origDueTime;
-
-  const origReminderPreset = orig.reminderAt ? 'custom' : (orig.reminderPreset || 'none');
-  const origReminderAt = orig.reminderAt ? new Date(orig.reminderAt) : null;
-  const origReminderDate = origReminderAt ? origReminderAt.toISOString().slice(0, 10) : null;
-  const origReminderTime = origReminderAt
-    ? `${String(origReminderAt.getHours()).padStart(2, '0')}:${String(origReminderAt.getMinutes()).padStart(2, '0')}`
-    : null;
-
-  const reminderChanged =
-    (d.reminderPreset ?? null) !== origReminderPreset ||
-    (d.reminderPreset === 'custom' &&
-      ((d.reminderDate ?? null) !== origReminderDate || (d.reminderTime ?? null) !== origReminderTime));
-
-  const origRepeat = orig.repeat || 'none';
-  const origRepeatMins = (orig as any).repeatEveryMinutes ?? null;
-  const repeatChanged =
-    (d.repeat ?? null) !== origRepeat || (d.repeatEveryMinutes ?? null) !== origRepeatMins;
-
-  const typeChanged = (d.type ?? null) !== (orig.type ?? null);
-
+  const origTitle = orig ? composeTitle(orig.type, orig.title || '') : null;
+  const origDueDate = orig && orig.dueAt ? new Date(orig.dueAt).toISOString().slice(0,10) : null;
+  const origDueTime = orig && orig.dueAt ? `${String(new Date(orig.dueAt).getHours()).padStart(2,'0')}:${String(new Date(orig.dueAt).getMinutes()).padStart(2,'0')}` : null;
+  const dateChanged = (origDueDate !== null || origDueTime !== null) ? ((d.dueDate ?? null) !== origDueDate || (d.dueTime ?? null) !== origDueTime) : false;
+  const origReminderPreset = orig ? (orig.reminderAt ? 'custom' : (orig.reminderPreset || 'none')) : null;
+  const origReminderDate = orig && orig.reminderAt ? new Date(orig.reminderAt).toISOString().slice(0,10) : null;
+  const origReminderTime = orig && orig.reminderAt ? `${String(new Date(orig.reminderAt).getHours()).padStart(2,'0')}:${String(new Date(orig.reminderAt).getMinutes()).padStart(2,'0')}` : null;
+  const reminderChanged = origReminderPreset !== null ? ((d.reminderPreset ?? null) !== origReminderPreset || (d.reminderDate ?? null) !== origReminderDate || (d.reminderTime ?? null) !== origReminderTime) : false;
+  const origRepeat = orig ? (orig.repeat || 'none') : null;
+  const origRepeatMins = orig ? ((orig as any).repeatEveryMinutes || null) : null;
+  const repeatChanged = origRepeat !== null ? ((d.repeat ?? null) !== origRepeat || (d.repeatEveryMinutes ?? null) !== origRepeatMins) : false;
+  const typeChanged = orig ? ((d.type ?? null) !== (orig.type ?? null)) : false;
+  const titleChanged = origTitle !== null ? (displayTitle !== origTitle) : false;
   out.title = titleChanged;
   out.date = dateChanged;
-  out.time = timeChanged;
   out.reminder = reminderChanged;
   out.repeat = repeatChanged;
   out.type = typeChanged;
-
   return out;
 }
 
@@ -164,14 +144,41 @@ export async function promptReminder(ctx: any) {
 
 export async function promptReminderCustomDate(ctx: any) {
   pushStep(ctx, 'reminder-custom-date');
-  const res = await safeEditOrReply(ctx, 'Укажи дату напоминания (YYYY-MM-DD)', Markup.inlineKeyboard([[Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]]));
-  (ctx.session as SessionData).lastPrompt = { chatId: ctx.chat!.id, messageId: res.messageId, viaCallback: res.viaCallback };
+  const today = todayISO();
+  const res = await safeEditOrReply(
+    ctx,
+    `Укажи дату напоминания (YYYY-MM-DD)\nНапример: ${today}`,
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback('↩ Назад', 'nav:back'),
+        Markup.button.callback('❌ Отмена', 'nav:cancel'),
+      ],
+    ])
+  );
+  (ctx.session as SessionData).lastPrompt = {
+    chatId: ctx.chat!.id,
+    messageId: res.messageId,
+    viaCallback: res.viaCallback,
+  };
 }
 
 export async function promptReminderCustomTime(ctx: any) {
   pushStep(ctx, 'reminder-custom-time');
-  const res = await safeEditOrReply(ctx, 'Укажи время напоминания (HH:mm)', Markup.inlineKeyboard([[Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]]));
-  (ctx.session as SessionData).lastPrompt = { chatId: ctx.chat!.id, messageId: res.messageId, viaCallback: res.viaCallback };
+  const res = await safeEditOrReply(
+    ctx,
+    'Укажи время напоминания (HH:mm)\nНапример: 09:00 или 18:30',
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback('↩ Назад', 'nav:back'),
+        Markup.button.callback('❌ Отмена', 'nav:cancel'),
+      ],
+    ])
+  );
+  (ctx.session as SessionData).lastPrompt = {
+    chatId: ctx.chat!.id,
+    messageId: res.messageId,
+    viaCallback: res.viaCallback,
+  };
 }
 
 export async function promptRepeat(ctx: any) {
@@ -193,7 +200,7 @@ export async function promptConfirm(ctx: any) {
           type: t.type === 'custom' ? undefined : t.type,
           dueDate: t.dueAt ? new Date(t.dueAt).toISOString().slice(0, 10) : null,
           dueTime: t.dueAt ? `${String(new Date(t.dueAt).getHours()).padStart(2, '0')}:${String(new Date(t.dueAt).getMinutes()).padStart(2,'0')}` : null,
-          reminderPreset: t.reminderAt ? 'custom' : 'none',
+          reminderPreset: t.reminderAt ? 'custom' : (t.reminderPreset || 'none'),
           reminderDate: t.reminderAt ? new Date(t.reminderAt).toISOString().slice(0, 10) : null,
           reminderTime: t.reminderAt ? `${String(new Date(t.reminderAt).getHours()).padStart(2,'0')}:${String(new Date(t.reminderAt).getMinutes()).padStart(2,'0')}` : null,
           repeat: t.repeat || 'none',
@@ -203,14 +210,20 @@ export async function promptConfirm(ctx: any) {
       } else {
         ensureDraft(ctx);
       }
-    } catch (e) {
+    } catch {
       ensureDraft(ctx);
     }
   } else {
     ensureDraft(ctx);
   }
-  const markers = computeMarkers(s);
-  const res = await safeEditOrReply(ctx, `Проверь данные:\n\n${renderDraft((ctx.session as SessionData).draft ?? null, (ctx.session as SessionData).originalTask ?? null)}`, confirmKb());
+  const res = await safeEditOrReply(
+    ctx,
+    `Проверь данные:\n\n${renderDraft(
+      (ctx.session as SessionData).draft ?? null,
+      (ctx.session as SessionData).originalTask ?? null
+    )}`,
+    confirmKb()
+  );
   (ctx.session as SessionData).lastPrompt = { chatId: ctx.chat!.id, messageId: res.messageId, viaCallback: res.viaCallback };
 }
 
@@ -241,11 +254,63 @@ export function registerEditHandlers(bot: Telegraf<any>) {
     await ctx.reply('Пока тут пусто. Возвращайся позже 🙂');
   });
 
+  // 🧪 Тестовая задача
+  bot.hears('🧪 Тестовая задача', async (ctx) => {
+    const now = new Date();
+    const due = addMinutes(now, 17);
+    const reminderAt = addMinutes(due, -15);
+
+    const words = [
+      'осознанность',
+      'дыхание',
+      'фокус',
+      'тишина',
+      'движение',
+      'память',
+      'радость',
+      'йога',
+      'внимание',
+      'поток',
+      'энергия',
+      'баланс',
+      'спокойствие',
+      'сила',
+      'гибкость',
+    ];
+    const pick = () => words[Math.floor(Math.random() * words.length)];
+    const title = `${pick()} ${pick()} ${pick()}`;
+
+    const { tasks } = getCollections();
+    await tasks.insertOne({
+      userId: ctx.from!.id,
+      title,
+      type: 'custom',
+      dueAt: due,
+      reminderAt,
+      reminderPreset: '-15m',
+      reminderDate: null,
+      reminderTime: null,
+      repeat: 'custom-mins',
+      repeatEveryMinutes: 5,
+      status: 'active',
+      reminderSentAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.reply(
+      `Тестовая задача создана:\n\n` +
+      `${title}\n\n` +
+      `Время задачи: ${toLocalDateStr(due)}\n` +
+      `Напоминание: за 15 минут, повтор каждые 5 минут.`
+    );
+  });
+
   bot.hears(/.*/s, async (ctx, next) => {
     const s = ctx.session as SessionData;
     const text = ctx.message?.text;
     if (!text || text.startsWith('/')) return next();
-    const menuCommands = ['➕ Новая задача', '🗂 Мои задачи', '⚙️ Настройки', '🏠 Главное меню'];
+    const menuCommands = ['➕ Новая задача', '🗂 Мои задачи', '⚙️ Настройки', '🏠 Главное меню', '🧪 Тестовая задача'];
     if (menuCommands.includes(text.trim())) return next();
     if (s.mode === 'idle') {
       const now = new Date();
@@ -279,12 +344,32 @@ export function registerEditHandlers(bot: Telegraf<any>) {
     ensureDraft(ctx);
     if (preset === 'quick') {
       s.mode = 'quick';
-      const res = await safeEditOrReply(ctx, '⚡ Быстрое создание. Введи название задачи:', Markup.inlineKeyboard([[Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]]));
-      (ctx.session as SessionData).lastPrompt = { chatId: ctx.chat!.id, messageId: res.messageId, viaCallback: res.viaCallback };
+      const res = await safeEditOrReply(
+        ctx,
+        '⚡ Быстрое создание. Введи название задачи:',
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback('↩ Назад', 'nav:back'),
+            Markup.button.callback('❌ Отмена', 'nav:cancel'),
+          ],
+        ])
+      );
+      (ctx.session as SessionData).lastPrompt = {
+        chatId: ctx.chat!.id,
+        messageId: res.messageId,
+        viaCallback: res.viaCallback,
+      };
       return;
     }
     s.draft!.type = preset === 'custom' ? undefined : preset;
-    const label = preset === 'buy' ? 'Купить' : preset === 'call' ? 'Позвонить' : preset === 'meet' ? 'Встреча' : 'Ввести вручную';
+    const label =
+      preset === 'buy'
+        ? 'Купить'
+        : preset === 'call'
+          ? 'Позвонить'
+          : preset === 'meet'
+            ? 'Встреча'
+            : 'Ввести вручную';
     await promptTitle(ctx, label);
   });
 
@@ -302,11 +387,24 @@ export function registerEditHandlers(bot: Telegraf<any>) {
         userId: ctx.from!.id,
         title: text,
         type: 'custom',
-        dueAt: null, reminderAt: null, reminderPreset: null, reminderDate: null, reminderTime: null, repeat: 'none', repeatEveryMinutes: null,
-        status: 'active', reminderSentAt: null, createdAt: now, updatedAt: now,
+        dueAt: null,
+        reminderAt: null,
+        reminderPreset: null,
+        reminderDate: null,
+        reminderTime: null,
+        repeat: 'none',
+        repeatEveryMinutes: null,
+        status: 'active',
+        reminderSentAt: null,
+        createdAt: now,
+        updatedAt: now,
       });
       try { await pushRecentTitle(ctx.from!.id, text); } catch {}
-      await safeEditOrReply(ctx, 'Задача создана. Открой «🗂 Мои задачи», чтобы отредактировать.', Markup.inlineKeyboard([[Markup.button.callback('🏠 Главное меню', 'nav:home')]]));
+      await safeEditOrReply(
+        ctx,
+        'Задача создана. Открой «🗂 Мои задачи», чтобы отредактировать.',
+        Markup.inlineKeyboard([[Markup.button.callback('🏠 Главное меню', 'nav:home')]])
+      );
       s.mode = 'idle';
       return;
     }
@@ -403,7 +501,16 @@ export function registerEditHandlers(bot: Telegraf<any>) {
 
   bot.action('ttl:manual', async (ctx) => {
     pushStep(ctx, 'title');
-    await safeEditOrReply(ctx, '⬇️ Введи текст', Markup.inlineKeyboard([[Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]]));
+    await safeEditOrReply(
+      ctx,
+      '⬇️ Введи текст',
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback('↩ Назад', 'nav:back'),
+          Markup.button.callback('❌ Отмена', 'nav:cancel'),
+        ],
+      ])
+    );
   });
 
   bot.action('date:today', async (ctx) => {
@@ -415,7 +522,7 @@ export function registerEditHandlers(bot: Telegraf<any>) {
         s.draft!.reminderPreset = 'at';
       }
       const markers = computeMarkers(s);
-      await safeEditOrReply(ctx, 'Дата обновлена.', editMenuKb(String((ctx.session as SessionData).editingTaskId!), markers));
+      await safeEditOrReply(ctx, 'Дата обновлена.', editMenuKb(String(s.editingTaskId!), markers));
     } else {
       await promptTime(ctx);
     }
@@ -432,7 +539,7 @@ export function registerEditHandlers(bot: Telegraf<any>) {
         s.draft!.reminderPreset = 'at';
       }
       const markers = computeMarkers(s);
-      await safeEditOrReply(ctx, 'Дата обновлена.', editMenuKb(String((ctx.session as SessionData).editingTaskId!), markers));
+      await safeEditOrReply(ctx, 'Дата обновлена.', editMenuKb(String(s.editingTaskId!), markers));
     } else {
       await promptTime(ctx);
     }
@@ -453,7 +560,8 @@ export function registerEditHandlers(bot: Telegraf<any>) {
   bot.action('date:cal', async (ctx) => promptCalendar(ctx));
 
   bot.action(/^cal:(-?\d+):(-?\d+)$/, async (ctx) => {
-    const y = Number(ctx.match[1]); let m = Number(ctx.match[2]);
+    const y = Number(ctx.match[1]);
+    let m = Number(ctx.match[2]);
     while (m < 0) m += 12;
     while (m > 11) m -= 12;
     await promptCalendar(ctx, new Date(y, m, 1));
@@ -468,7 +576,7 @@ export function registerEditHandlers(bot: Telegraf<any>) {
         s.draft!.reminderPreset = 'at';
       }
       const markers = computeMarkers(s);
-      await safeEditOrReply(ctx, 'Дата обновлена.', editMenuKb(String((ctx.session as SessionData).editingTaskId!), markers));
+      await safeEditOrReply(ctx, 'Дата обновлена.', editMenuKb(String(s.editingTaskId!), markers));
     } else {
       await promptTime(ctx);
     }
@@ -478,13 +586,20 @@ export function registerEditHandlers(bot: Telegraf<any>) {
     const v = ctx.match[1];
     const s = ctx.session as SessionData;
     const pad = (n: number) => String(n).padStart(2, '0');
-
     if (v === 'manual') {
       pushStep(ctx, 'time');
-      await safeEditOrReply(ctx, 'Укажи время (HH:mm) или "-"', Markup.inlineKeyboard([[Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]]));
+      await safeEditOrReply(
+        ctx,
+        'Укажи время (HH:mm) или "-"',
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback('↩ Назад', 'nav:back'),
+            Markup.button.callback('❌ Отмена', 'nav:cancel'),
+          ],
+        ])
+      );
       return;
     }
-
     if (v === 'picker') {
       pushStep(ctx, 'time');
       ensureDraft(ctx);
@@ -498,12 +613,14 @@ export function registerEditHandlers(bot: Telegraf<any>) {
         }
       }
       if (row.length) rows.push(row);
-      rows.push([Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]);
+      rows.push([
+        Markup.button.callback('↩ Назад', 'nav:back'),
+        Markup.button.callback('❌ Отмена', 'nav:cancel'),
+      ]);
       const res = await safeEditOrReply(ctx, 'Выберите час:', Markup.inlineKeyboard(rows));
       (ctx.session as SessionData).lastPrompt = { chatId: ctx.chat!.id, messageId: res.messageId, viaCallback: res.viaCallback };
       return;
     }
-
     if (/^\d{2}:\d{2}$/.test(v)) {
       ensureDraft(ctx);
       (ctx.session as SessionData).draft!.dueTime = v;
@@ -513,13 +630,12 @@ export function registerEditHandlers(bot: Telegraf<any>) {
           s2.draft!.reminderPreset = 'at';
         }
         const markers = computeMarkers(s2);
-        await safeEditOrReply(ctx, 'Время обновлено.', editMenuKb(String((ctx.session as SessionData).editingTaskId!), markers));
+        await safeEditOrReply(ctx, 'Время обновлено.', editMenuKb(String(s2.editingTaskId!), markers));
       } else {
         await promptReminder(ctx);
       }
       return;
     }
-
     if (/^in:(\d+)m$/.test(v)) {
       const m = Number(v.replace('in:', '').replace('m', ''));
       const dt = addMinutes(new Date(), m);
@@ -532,13 +648,12 @@ export function registerEditHandlers(bot: Telegraf<any>) {
           s2.draft!.reminderPreset = 'at';
         }
         const markers = computeMarkers(s2);
-        await safeEditOrReply(ctx, 'Время обновлено.', editMenuKb(String((ctx.session as SessionData).editingTaskId!), markers));
+        await safeEditOrReply(ctx, 'Время обновлено.', editMenuKb(String(s2.editingTaskId!), markers));
       } else {
         await promptReminder(ctx);
       }
       return;
     }
-
     await ctx.answerCbQuery();
   });
 
@@ -555,7 +670,10 @@ export function registerEditHandlers(bot: Telegraf<any>) {
       if (row.length === 4) { rows.push(row); row = []; }
     }
     if (row.length) rows.push(row);
-    rows.push([Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]);
+    rows.push([
+      Markup.button.callback('↩ Назад', 'nav:back'),
+      Markup.button.callback('❌ Отмена', 'nav:cancel'),
+    ]);
     const res = await safeEditOrReply(ctx, `Выбран час: ${pad(h)}. Теперь выберите минуты:`, Markup.inlineKeyboard(rows));
     (ctx.session as SessionData).lastPrompt = { chatId: ctx.chat!.id, messageId: res.messageId, viaCallback: res.viaCallback };
   });
@@ -577,7 +695,7 @@ export function registerEditHandlers(bot: Telegraf<any>) {
         s2.draft!.reminderPreset = 'at';
       }
       const markers = computeMarkers(s2);
-      await safeEditOrReply(ctx, 'Время обновлено.', editMenuKb(String((ctx.session as SessionData).editingTaskId!), markers));
+      await safeEditOrReply(ctx, 'Время обновлено.', editMenuKb(String(s2.editingTaskId!), markers));
     } else {
       await promptReminder(ctx);
     }
@@ -607,7 +725,16 @@ export function registerEditHandlers(bot: Telegraf<any>) {
     if (key === 'custom') {
       s.draft!.repeat = 'custom-mins';
       pushStep(ctx, 'repeat-custom-mins');
-      await safeEditOrReply(ctx, 'Введи интервал в минутах:', Markup.inlineKeyboard([[Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]]));
+      await safeEditOrReply(
+        ctx,
+        'Введи интервал в минутах:',
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback('↩ Назад', 'nav:back'),
+            Markup.button.callback('❌ Отмена', 'nav:cancel'),
+          ],
+        ])
+      );
       return;
     }
     s.draft!.repeat = key;
@@ -663,7 +790,7 @@ export function registerEditHandlers(bot: Telegraf<any>) {
       title: fullTitle,
       dueDate: t.dueAt ? new Date(t.dueAt).toISOString().slice(0, 10) : null,
       dueTime: t.dueAt ? `${String(new Date(t.dueAt).getHours()).padStart(2, '0')}:${String(new Date(t.dueAt).getMinutes()).padStart(2,'0')}` : null,
-      reminderPreset: t.reminderAt ? 'custom' : 'none',
+      reminderPreset: t.reminderAt ? 'custom' : (t.reminderPreset || 'none'),
       reminderDate: t.reminderAt ? new Date(t.reminderAt).toISOString().slice(0, 10) : null,
       reminderTime: t.reminderAt ? `${String(new Date(t.reminderAt).getHours()).padStart(2,'0')}:${String(new Date(t.reminderAt).getMinutes()).padStart(2,'0')}` : null,
       repeat: t.repeat || 'none',
@@ -692,7 +819,6 @@ export function registerEditHandlers(bot: Telegraf<any>) {
     const { tasks } = getCollections();
     const t = await tasks.findOne({ _id: new ObjectId(id), userId: ctx.from!.id });
     if (!t) return ctx.answerCbQuery('Задача не найдена');
-
     if (newStatus === 'active' && t.dueAt && new Date(t.dueAt).getTime() < Date.now()) {
       await tasks.updateOne({ _id: t._id }, { $set: { status: 'active', updatedAt: new Date() } });
       await safeEditOrReply(ctx, 'Задача переведена в Активна, но её время в прошлом. Хотите изменить дату/времени?', Markup.inlineKeyboard([
@@ -703,7 +829,6 @@ export function registerEditHandlers(bot: Telegraf<any>) {
       ]));
       return;
     }
-
     await tasks.updateOne({ _id: t._id }, { $set: { status: newStatus, updatedAt: new Date() } });
     const refreshed = await tasks.findOne({ _id: t._id });
     await safeEditOrReply(ctx, renderTask(refreshed as any), editMenuKb(String(t._id), computeMarkers((ctx.session as SessionData))));
@@ -746,7 +871,6 @@ export function registerEditHandlers(bot: Telegraf<any>) {
     const s = ctx.session as SessionData;
     s.mode = 'editing';
     if (!s.editingTaskId) s.editingTaskId = id;
-
     try {
       const t = await getTaskCached(ctx, id);
       if (t) {
@@ -756,7 +880,7 @@ export function registerEditHandlers(bot: Telegraf<any>) {
           title: s.draft?.title ?? fullTitle,
           dueDate: s.draft?.dueDate ?? (t.dueAt ? new Date(t.dueAt).toISOString().slice(0, 10) : null),
           dueTime: s.draft?.dueTime ?? (t.dueAt ? `${String(new Date(t.dueAt).getHours()).padStart(2, '0')}:${String(new Date(t.dueAt).getMinutes()).padStart(2,'0')}` : null),
-          reminderPreset: s.draft?.reminderPreset ?? (t.reminderAt ? 'custom' : 'none'),
+          reminderPreset: s.draft?.reminderPreset ?? (t.reminderAt ? 'custom' : (t.reminderPreset || 'none')),
           reminderDate: s.draft?.reminderDate ?? (t.reminderAt ? new Date(t.reminderAt).toISOString().slice(0, 10) : null),
           reminderTime: s.draft?.reminderTime ?? (t.reminderAt ? `${String(new Date(t.reminderAt).getHours()).padStart(2,'0')}:${String(new Date(t.reminderAt).getMinutes()).padStart(2,'0')}` : null),
           repeat: s.draft?.repeat ?? (t.repeat || 'none'),
@@ -774,7 +898,16 @@ export function registerEditHandlers(bot: Telegraf<any>) {
       pushStep(ctx, 'title');
       const oldTitle = (s.draft && s.draft.title) ? s.draft.title : '';
       const hint = oldTitle ? `Текущее название: ${oldTitle}\n\n` : '';
-      await safeEditOrReply(ctx, `${hint}Введи новое название:`, Markup.inlineKeyboard([[Markup.button.callback('↩ Назад', 'nav:back'), Markup.button.callback('❌ Отмена', 'nav:cancel')]]));
+      await safeEditOrReply(
+        ctx,
+        `${hint}Введи новое название:`,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback('↩ Назад', 'nav:back'),
+            Markup.button.callback('❌ Отмена', 'nav:cancel'),
+          ],
+        ])
+      );
       return;
     }
 
@@ -821,26 +954,26 @@ export function registerEditHandlers(bot: Telegraf<any>) {
 
     if (field === 'save') {
       try {
-        const id = await saveTaskFromDraft(ctx);
+        const id2 = await saveTaskFromDraft(ctx);
         const { tasks } = getCollections();
-        const t = await tasks.findOne({ _id: new ObjectId(id) });
+        const t2 = await tasks.findOne({ _id: new ObjectId(id2) });
         await safeEditOrReply(
           ctx,
-          `Сохранено ✅\n\n${renderTask(t!)}`,
+          `Сохранено ✅\n\n${renderTask(t2!)}`,
           Markup.inlineKeyboard([
-            [Markup.button.callback('✏️ Редактировать', `tsk:edit:${id}`)],
+            [Markup.button.callback('✏️ Редактировать', `tsk:edit:${id2}`)],
             [Markup.button.callback('🗂 К задачам', 'list:all')],
             [Markup.button.callback('🏠 Главное меню', 'nav:home')],
           ])
         );
-        const s2 = ctx.session as SessionData;
-        s2.mode = 'idle';
-        s2.draft = null;
-        s2.steps = [];
-        s2.editingTaskId = null;
-        s2.timePicker = null;
-        s2.lastLoadedTask = null;
-        s2.originalTask = null;
+        const ss = ctx.session as SessionData;
+        ss.mode = 'idle';
+        ss.draft = null;
+        ss.steps = [];
+        ss.editingTaskId = null;
+        ss.timePicker = null;
+        ss.lastLoadedTask = null;
+        ss.originalTask = null;
       } catch (e: any) {
         await ctx.reply('Ошибка при сохранении: ' + (e.message || String(e)));
       }

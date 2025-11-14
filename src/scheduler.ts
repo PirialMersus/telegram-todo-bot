@@ -13,7 +13,6 @@ const HEALTHCHECK_URL =
   process.env.HEALTHCHECK_URL ||
   process.env.HEALTHCHECKS_URL ||
   '';
-
 const SHOULD_PING_HEALTHCHECKS = process.env.NODE_ENV === 'production';
 
 function pingHealthcheck() {
@@ -37,6 +36,7 @@ export function startReminderLoop(bot: Telegraf) {
         $or: [
           { reminderSentAt: null },
           { reminderSentAt: { $exists: false } },
+          { repeat: 'custom-mins' },
         ],
       })
       .limit(200)
@@ -44,46 +44,92 @@ export function startReminderLoop(bot: Telegraf) {
 
     for (const t of dueReminders) {
       try {
-        const chatId = typeof t.userId === 'number'
-          ? t.userId
-          : Number(t.userId);
-
+        const chatId =
+          typeof t.userId === 'number' ? t.userId : Number(t.userId);
         if (!chatId || Number.isNaN(chatId)) {
-          console.error('Invalid chatId for reminder', String(t._id), t.userId);
+          console.error(
+            'Invalid chatId for reminder',
+            String(t._id),
+            t.userId
+          );
           continue;
         }
 
         const title = escapeHtml(t.title || 'Без названия');
-
-        const whenSource =
-          (t.dueAt ? new Date(t.dueAt) : null) ||
-          (t.reminderAt ? new Date(t.reminderAt) : null) ||
-          null;
-
-        const when = whenSource
-          ? escapeHtml(toLocalDateStr(whenSource))
-          : '—';
-
+        const dueAt: Date | null = t.dueAt ? new Date(t.dueAt) : null;
+        const reminderAt: Date | null = t.reminderAt
+          ? new Date(t.reminderAt)
+          : null;
+        const preset: string | null = (t as any).reminderPreset ?? null;
         const nowTime = new Date();
+        const isRepeating = t.repeat && t.repeat !== 'none';
 
         let text: string;
-        if (t.dueAt && new Date(t.dueAt).getTime() <= nowTime.getTime()) {
+
+        if (isRepeating) {
+          // Повторяющиеся напоминания — каждый раз "сейчас" и текущее время
+          const whenLabel = escapeHtml(toLocalDateStr(new Date()));
           text =
             `⏰ <b>Сейчас задача:</b>\n\n` +
             `<b>${title}</b>\n\n` +
-            `Когда: ${when}`;
+            `Когда: ${whenLabel}`;
         } else {
-          text =
-            `⚠️ <b>Скоро задача:</b>\n\n` +
-            `<b>${title}</b>\n\n` +
-            `Когда: ${when}`;
+          const dueLabel = dueAt
+            ? escapeHtml(toLocalDateStr(dueAt))
+            : null;
+          const isRelativeMinutes =
+            typeof preset === 'string' && /^-?\d+m$/.test(preset);
+
+          if (isRelativeMinutes && dueAt && dueLabel) {
+            // Относительные пресеты: -15m, -30m, -120m и т.п.
+            const minutes = Number(
+              String(preset).replace('-', '').replace('m', '')
+            );
+            const minutesText =
+              minutes >= 60
+                ? `${Math.floor(minutes / 60)} ч`
+                : `${minutes} мин`;
+            text =
+              `⚠️ <b>Через ${minutesText} задача:</b>\n\n` +
+              `<b>${title}</b>\n\n` +
+              `Когда: ${dueLabel}`;
+          } else if (dueAt && dueLabel) {
+            // Обычное напоминание: смотрим, сколько осталось до dueAt
+            const diffMinutes = Math.round(
+              (dueAt.getTime() - nowTime.getTime()) / 60000
+            );
+            if (diffMinutes <= 1) {
+              text =
+                `⏰ <b>Сейчас задача:</b>\n\n` +
+                `<b>${title}</b>\n\n` +
+                `Когда: ${dueLabel}`;
+            } else {
+              text =
+                `⚠️ <b>Скоро задача:</b>\n\n` +
+                `<b>${title}</b>\n\n` +
+                `Когда: ${dueLabel}`;
+            }
+          } else {
+            // На всякий случай, если dueAt нет — показываем время напоминания
+            const label = escapeHtml(
+              toLocalDateStr(reminderAt || new Date())
+            );
+            text =
+              `⏰ <b>Напоминание:</b>\n\n` +
+              `<b>${title}</b>\n\n` +
+              `Когда: ${label}`;
+          }
         }
 
         await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
 
         const sentAt = new Date();
 
-        if (t.repeat === 'custom-mins' && t.repeatEveryMinutes && Number(t.repeatEveryMinutes) > 0) {
+        if (
+          t.repeat === 'custom-mins' &&
+          t.repeatEveryMinutes &&
+          Number(t.repeatEveryMinutes) > 0
+        ) {
           const interval = Math.max(1, Number(t.repeatEveryMinutes));
           const baseReminder = t.reminderAt
             ? new Date(t.reminderAt)
@@ -99,12 +145,11 @@ export function startReminderLoop(bot: Telegraf) {
             {
               $set: {
                 reminderAt: next,
-                reminderSentAt: null,
+                reminderSentAt: sentAt,
                 updatedAt: sentAt,
               },
             }
           );
-
           if (!res.matchedCount) {
             console.error(
               'Failed to match task for repeating update',
@@ -112,18 +157,24 @@ export function startReminderLoop(bot: Telegraf) {
               'userId:',
               t.userId
             );
+          } else if (!res.modifiedCount) {
+            console.error(
+              'Task update did not modify document (maybe identical). task:',
+              String(t._id)
+            );
+          } else {
+            console.log(
+              'Reminder sent (repeating). Next at',
+              next.toISOString(),
+              'task',
+              String(t._id)
+            );
           }
         } else {
           const res = await tasks.updateOne(
             { _id: t._id },
-            {
-              $set: {
-                reminderSentAt: sentAt,
-                updatedAt: sentAt,
-              },
-            }
+            { $set: { reminderSentAt: sentAt, updatedAt: sentAt } }
           );
-
           if (!res.matchedCount) {
             console.error(
               'Failed to mark one-shot reminder as sent',
@@ -131,10 +182,24 @@ export function startReminderLoop(bot: Telegraf) {
               'userId:',
               t.userId
             );
+          } else {
+            console.log(
+              'Reminder sent (one-shot). task',
+              String(t._id)
+            );
           }
         }
       } catch (sendErr) {
         console.error('Reminder send/update error', sendErr);
+        try {
+          const { tasks } = getCollections();
+          await tasks.updateOne(
+            { _id: (sendErr && (sendErr as any)._id) || null },
+            { $set: { updatedAt: new Date() } }
+          );
+        } catch (uErr) {
+          console.error('Reminder update fallback error', uErr);
+        }
       }
     }
 
@@ -166,7 +231,6 @@ export function startInactivityCleanupLoop(bot: Telegraf) {
     try {
       const { users, tasks } = getCollections();
       const now = new Date();
-
       const threeMonthsAgo = new Date(now);
       threeMonthsAgo.setMonth(now.getMonth() - 3);
 
@@ -185,11 +249,9 @@ export function startInactivityCleanupLoop(bot: Telegraf) {
         try {
           await bot.telegram.sendMessage(
             u.userId,
-            'Вы давно не пользуетесь ботом. ' +
-            'Сделайте любую активность в течение 3 дней, иначе ваш аккаунт и все задачи будут удалены для экономии места.'
+            'Вы давно не пользуетесь ботом. Сделайте любую активность в течение 3 дней, иначе ваш аккаунт и все задачи будут удалены для экономии места.'
           );
         } catch {}
-
         await users.updateOne(
           { userId: u.userId },
           {
@@ -204,7 +266,6 @@ export function startInactivityCleanupLoop(bot: Telegraf) {
       const threeDaysAgo = new Date(
         now.getTime() - 3 * 24 * 60 * 60 * 1000
       );
-
       const toDelete = await users
         .find({
           cleanupWarnedAt: { $lte: threeDaysAgo },
@@ -220,7 +281,6 @@ export function startInactivityCleanupLoop(bot: Telegraf) {
             'Ваши данные были удалены из-за отсутствия активности.'
           );
         } catch {}
-
         await tasks.deleteMany({ userId: u.userId });
         await users.deleteOne({ userId: u.userId });
       }
@@ -236,17 +296,17 @@ export function startMorningDigestLoop(bot: Telegraf) {
     try {
       const { tasks } = getCollections();
       const now = new Date();
-
       const start = new Date(
         now.getFullYear(),
         now.getMonth(),
         now.getDate(),
         0,
         0,
-        0,
         0
       );
-      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      const end = new Date(
+        start.getTime() + 24 * 60 * 60 * 1000
+      );
 
       const cursor = tasks.aggregate([
         { $match: { dueAt: { $gte: start, $lt: end } } },
@@ -256,22 +316,18 @@ export function startMorningDigestLoop(bot: Telegraf) {
       while (await cursor.hasNext()) {
         const group = await cursor.next();
         if (!group || !group._id) continue;
-
         const userTasks = group.tasks as any[];
         if (!userTasks || userTasks.length === 0) continue;
 
         const lines = userTasks.map((t) => {
-          const when = t.dueAt
-            ? escapeHtml(toLocalDateStr(new Date(t.dueAt)))
-            : '—';
-          const title = escapeHtml(t.title || 'Без названия');
-          return `<b>${title}</b>\n<i>Когда:</i> ${when}`;
+          const when = toLocalDateStr(t.dueAt);
+          return `<b>${escapeHtml(t.title)}</b>\n<i>Когда:</i> ${escapeHtml(
+            when
+          )}`;
         });
 
         const text =
-          '📋 Список задач на сегодня:\n\n' +
-          lines.join('\n\n');
-
+          `📋 Список задач на сегодня:\n\n` + lines.join('\n\n');
         try {
           await bot.telegram.sendMessage(group._id, text, {
             parse_mode: 'HTML',
@@ -293,13 +349,8 @@ export function startMorningDigestLoop(bot: Telegraf) {
       0,
       0
     );
-
-    if (now >= next) {
-      next.setDate(next.getDate() + 1);
-    }
-
+    if (now >= next) next.setDate(next.getDate() + 1);
     const ms = next.getTime() - now.getTime();
-
     setTimeout(() => {
       sendTodayLists().catch(() => {});
       setInterval(sendTodayLists, 24 * 60 * 60 * 1000);
