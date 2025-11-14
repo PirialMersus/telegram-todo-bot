@@ -2,7 +2,7 @@
 import { Telegraf } from 'telegraf';
 import https from 'https';
 import { getCollections } from './db';
-import { toLocalDateStr, addMinutes } from './bot/utils';
+import { toLocalDateStr } from './bot/utils';
 
 function escapeHtml(s?: string) {
   if (!s) return '';
@@ -22,6 +22,26 @@ function pingHealthcheck() {
   } catch {}
 }
 
+function getRepeatIntervalMs(task: any): number | null {
+  const repeat: string | null = task.repeat ?? null;
+  const mins: number | null = task.repeatEveryMinutes ?? null;
+
+  if (!repeat || repeat === 'none') return null;
+
+  if (repeat === 'custom-mins') {
+    if (!mins || !Number.isFinite(mins) || mins <= 0) return null;
+    return Math.floor(mins) * 60_000;
+  }
+
+  if (repeat === 'hourly') return 60 * 60_000;
+  if (repeat === 'daily') return 24 * 60 * 60_000;
+  if (repeat === 'weekly') return 7 * 24 * 60 * 60_000;
+  if (repeat === 'monthly') return 30 * 24 * 60 * 60_000;
+  if (repeat === 'yearly') return 365 * 24 * 60 * 60_000;
+
+  return null;
+}
+
 export function startReminderLoop(bot: Telegraf) {
   let running = false;
 
@@ -29,177 +49,179 @@ export function startReminderLoop(bot: Telegraf) {
     const { tasks } = getCollections();
     const now = new Date();
 
-    const dueReminders = await tasks
+    const preReminders = await tasks
       .find({
         reminderAt: { $lte: now },
         status: { $ne: 'done' },
         $or: [
           { reminderSentAt: null },
           { reminderSentAt: { $exists: false } },
-          { repeat: 'custom-mins' },
         ],
       })
       .limit(200)
       .toArray();
 
-    for (const t of dueReminders) {
+    for (const t of preReminders) {
       try {
         const chatId =
           typeof t.userId === 'number' ? t.userId : Number(t.userId);
-        if (!chatId || Number.isNaN(chatId)) {
-          console.error(
-            'Invalid chatId for reminder',
-            String(t._id),
-            t.userId
-          );
-          continue;
-        }
+        if (!chatId || Number.isNaN(chatId)) continue;
 
         const title = escapeHtml(t.title || 'Без названия');
         const dueAt: Date | null = t.dueAt ? new Date(t.dueAt) : null;
         const reminderAt: Date | null = t.reminderAt
           ? new Date(t.reminderAt)
           : null;
-        const preset: string | null = (t as any).reminderPreset ?? null;
-        const nowTime = new Date();
-        const isRepeating = t.repeat && t.repeat !== 'none';
+
+        if (!reminderAt) continue;
+
+        if (dueAt && reminderAt.getTime() >= dueAt.getTime()) {
+          continue;
+        }
 
         let text: string;
 
-        if (isRepeating) {
-          // Повторяющиеся напоминания — каждый раз "сейчас" и текущее время
-          const whenLabel = escapeHtml(toLocalDateStr(new Date()));
-          text =
-            `⏰ <b>Сейчас задача:</b>\n\n` +
-            `<b>${title}</b>\n\n` +
-            `Когда: ${whenLabel}`;
-        } else {
-          const dueLabel = dueAt
-            ? escapeHtml(toLocalDateStr(dueAt))
-            : null;
-          const isRelativeMinutes =
-            typeof preset === 'string' && /^-?\d+m$/.test(preset);
-
-          if (isRelativeMinutes && dueAt && dueLabel) {
-            // Относительные пресеты: -15m, -30m, -120m и т.п.
-            const minutes = Number(
-              String(preset).replace('-', '').replace('m', '')
-            );
-            const minutesText =
-              minutes >= 60
-                ? `${Math.floor(minutes / 60)} ч`
-                : `${minutes} мин`;
-            text =
-              `⚠️ <b>Через ${minutesText} задача:</b>\n\n` +
-              `<b>${title}</b>\n\n` +
-              `Когда: ${dueLabel}`;
-          } else if (dueAt && dueLabel) {
-            // Обычное напоминание: смотрим, сколько осталось до dueAt
-            const diffMinutes = Math.round(
-              (dueAt.getTime() - nowTime.getTime()) / 60000
-            );
-            if (diffMinutes <= 1) {
-              text =
-                `⏰ <b>Сейчас задача:</b>\n\n` +
-                `<b>${title}</b>\n\n` +
-                `Когда: ${dueLabel}`;
-            } else {
-              text =
-                `⚠️ <b>Скоро задача:</b>\n\n` +
-                `<b>${title}</b>\n\n` +
-                `Когда: ${dueLabel}`;
-            }
+        if (dueAt) {
+          const diffMinutes = Math.max(
+            1,
+            Math.round((dueAt.getTime() - now.getTime()) / 60000)
+          );
+          let spanText: string;
+          if (diffMinutes >= 60) {
+            const hours = Math.floor(diffMinutes / 60);
+            spanText = `${hours} ч`;
           } else {
-            // На всякий случай, если dueAt нет — показываем время напоминания
-            const label = escapeHtml(
-              toLocalDateStr(reminderAt || new Date())
-            );
-            text =
-              `⏰ <b>Напоминание:</b>\n\n` +
-              `<b>${title}</b>\n\n` +
-              `Когда: ${label}`;
+            spanText = `${diffMinutes} мин`;
           }
+          const dueLabel = escapeHtml(toLocalDateStr(dueAt));
+          text =
+            `⚠️ <b>Через ${spanText} задача:</b>\n\n` +
+            `<b>${title}</b>\n\n` +
+            `Когда: ${dueLabel}`;
+        } else {
+          const label = escapeHtml(toLocalDateStr(reminderAt));
+          text =
+            `🔔 <b>Напоминание:</b>\n\n` +
+            `<b>${title}</b>\n\n` +
+            `Когда: ${label}`;
         }
 
         await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
 
-        const sentAt = new Date();
-
-        if (
-          t.repeat === 'custom-mins' &&
-          t.repeatEveryMinutes &&
-          Number(t.repeatEveryMinutes) > 0
-        ) {
-          const interval = Math.max(1, Number(t.repeatEveryMinutes));
-          const baseReminder = t.reminderAt
-            ? new Date(t.reminderAt)
-            : sentAt;
-
-          let next = addMinutes(baseReminder, interval);
-          if (next.getTime() <= sentAt.getTime()) {
-            next = addMinutes(sentAt, interval);
+        await tasks.updateOne(
+          { _id: t._id },
+          {
+            $set: {
+              reminderSentAt: now,
+              reminderAt: null,
+              updatedAt: now,
+            },
           }
+        );
+      } catch (err) {
+        console.error('Pre-reminder send error', err);
+      }
+    }
 
-          const res = await tasks.updateOne(
-            { _id: t._id },
-            {
-              $set: {
-                reminderAt: next,
-                reminderSentAt: sentAt,
-                updatedAt: sentAt,
-              },
-            }
-          );
-          if (!res.matchedCount) {
-            console.error(
-              'Failed to match task for repeating update',
-              String(t._id),
-              'userId:',
-              t.userId
-            );
-          } else if (!res.modifiedCount) {
-            console.error(
-              'Task update did not modify document (maybe identical). task:',
-              String(t._id)
-            );
-          } else {
-            console.log(
-              'Reminder sent (repeating). Next at',
-              next.toISOString(),
-              'task',
-              String(t._id)
-            );
+    const startTasks = await tasks
+      .find({
+        dueAt: { $lte: now },
+        status: { $ne: 'done' },
+        $or: [
+          { startNotifiedAt: null },
+          { startNotifiedAt: { $exists: false } },
+        ],
+      })
+      .limit(200)
+      .toArray();
+
+    for (const t of startTasks) {
+      try {
+        const chatId =
+          typeof t.userId === 'number' ? t.userId : Number(t.userId);
+        if (!chatId || Number.isNaN(chatId)) continue;
+
+        const dueAt: Date | null = t.dueAt ? new Date(t.dueAt) : null;
+        const title = escapeHtml(t.title || 'Без названия');
+        const label = dueAt
+          ? escapeHtml(toLocalDateStr(dueAt))
+          : escapeHtml(toLocalDateStr(now));
+
+        const text =
+          `⏰ <b>Сейчас задача:</b>\n\n` +
+          `<b>${title}</b>\n\n` +
+          `Когда: ${label}`;
+
+        await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
+
+        await tasks.updateOne(
+          { _id: t._id },
+          {
+            $set: {
+              startNotifiedAt: now,
+              updatedAt: now,
+            },
           }
-        } else {
-          const res = await tasks.updateOne(
-            { _id: t._id },
-            { $set: { reminderSentAt: sentAt, updatedAt: sentAt } }
-          );
-          if (!res.matchedCount) {
-            console.error(
-              'Failed to mark one-shot reminder as sent',
-              String(t._id),
-              'userId:',
-              t.userId
-            );
-          } else {
-            console.log(
-              'Reminder sent (one-shot). task',
-              String(t._id)
-            );
+        );
+      } catch (err) {
+        console.error('Start notification send error', err);
+      }
+    }
+
+    const repeating = await tasks
+      .find({
+        status: { $ne: 'done' },
+        repeat: { $ne: 'none' },
+        $or: [
+          { startNotifiedAt: { $exists: true } },
+          { startNotifiedAt: { $ne: null } },
+        ],
+      })
+      .limit(300)
+      .toArray();
+
+    for (const t of repeating) {
+      try {
+        const intervalMs = getRepeatIntervalMs(t);
+        if (!intervalMs) continue;
+
+        const chatId =
+          typeof t.userId === 'number' ? t.userId : Number(t.userId);
+        if (!chatId || Number.isNaN(chatId)) continue;
+
+        const startAt: Date | null = t.startNotifiedAt
+          ? new Date(t.startNotifiedAt)
+          : null;
+        if (!startAt) continue;
+
+        const lastRepeat: Date | null = t.lastRepeatSentAt
+          ? new Date(t.lastRepeatSentAt)
+          : null;
+        const base = lastRepeat || startAt;
+
+        if (base.getTime() + intervalMs > now.getTime()) continue;
+
+        const title = escapeHtml(t.title || 'Без названия');
+        const label = escapeHtml(toLocalDateStr(now));
+
+        const text =
+          `⏰ <b>Сейчас задача:</b>\n\n` +
+          `<b>${title}</b>\n\n` +
+          `Когда: ${label}`;
+
+        await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
+
+        await tasks.updateOne(
+          { _id: t._id },
+          {
+            $set: {
+              lastRepeatSentAt: now,
+              updatedAt: now,
+            },
           }
-        }
-      } catch (sendErr) {
-        console.error('Reminder send/update error', sendErr);
-        try {
-          const { tasks } = getCollections();
-          await tasks.updateOne(
-            { _id: (sendErr && (sendErr as any)._id) || null },
-            { $set: { updatedAt: new Date() } }
-          );
-        } catch (uErr) {
-          console.error('Reminder update fallback error', uErr);
-        }
+        );
+      } catch (err) {
+        console.error('Repeat notification send error', err);
       }
     }
 
