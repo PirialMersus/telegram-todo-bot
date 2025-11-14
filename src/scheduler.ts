@@ -189,14 +189,12 @@ export function startReminderLoop(bot: Telegraf) {
           typeof t.userId === 'number' ? t.userId : Number(t.userId);
         if (!chatId || Number.isNaN(chatId)) continue;
 
-        const startAt: Date | null = t.startNotifiedAt
-          ? new Date(t.startNotifiedAt)
-          : null;
+        const startRaw = (t as any).startNotifiedAt;
+        const startAt: Date | null = startRaw ? new Date(startRaw) : null;
         if (!startAt) continue;
 
-        const lastRepeat: Date | null = t.lastRepeatSentAt
-          ? new Date(t.lastRepeatSentAt)
-          : null;
+        const lastRaw = (t as any).lastRepeatSentAt;
+        const lastRepeat: Date | null = lastRaw ? new Date(lastRaw) : null;
         const base = lastRepeat || startAt;
 
         if (base.getTime() + intervalMs > now.getTime()) continue;
