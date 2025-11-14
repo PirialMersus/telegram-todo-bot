@@ -2,7 +2,12 @@
 import { getCollections, ObjectId, pushRecentTitle } from '../db';
 import { composeTitle, buildDateFromParts, addMinutes } from './utils';
 
-function resolveReminder(preset: string | null | undefined, dueAt: Date | null, customDate?: string | null, customTime?: string | null): Date | null {
+function resolveReminder(
+  preset: string | null | undefined,
+  dueAt: Date | null,
+  customDate?: string | null,
+  customTime?: string | null
+): Date | null {
   if (!preset || preset === 'none') return null;
   if (preset === 'custom') return buildDateFromParts(customDate ?? null, customTime ?? null);
   if (preset === 'at') return dueAt ? new Date(dueAt) : null;

@@ -27,22 +27,72 @@ export async function safeEditOrReply(
   return { messageId: (sent as any).message_id, viaCallback: false };
 }
 
-export function toLocalDateStr(d?: Date | null): string {
+export function toLocalDateStr(d?: Date | string | null): string {
   if (!d) return '—';
-  const dt = new Date(d);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(dt.getDate())}.${pad(dt.getMonth() + 1)}.${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  const date = d instanceof Date ? d : new Date(d);
+  const parts = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Kiev',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const get = (type: string) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+
+  const day = get('day');
+  const month = get('month');
+  const year = get('year');
+  const hour = get('hour');
+  const minute = get('minute');
+
+  if (!day || !month || !year || !hour || !minute) return '—';
+  return `${day}.${month}.${year} ${hour}:${minute}`;
 }
 
 export function todayISO(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Kiev',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+
+  const get = (type: string) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+
+  if (!year || !month || !day) {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
 export function timeISO(date: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const parts = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Kiev',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const get = (type: string) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+
+  const hour = get('hour') || '00';
+  const minute = get('minute') || '00';
+
+  return `${hour}:${minute}`;
 }
 
 export function buildDateFromParts(date?: string | null, time?: string | null): Date | null {
@@ -64,7 +114,12 @@ export function buildDateFromParts(date?: string | null, time?: string | null): 
 
   if (time) {
     const [h, mm] = (time || '').split(':').map(Number);
-    base.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
+    base.setHours(
+      Number.isFinite(h) ? h : 0,
+      Number.isFinite(mm) ? mm : 0,
+      0,
+      0
+    );
   } else {
     base.setHours(9, 0, 0, 0);
   }
@@ -94,7 +149,7 @@ export function mapTypeLabel(type?: string | null): string {
     case 'meet':
       return '🤝 Встреча';
     default:
-      return type || '✍️ Вручную';
+      return '✍️ Вручную';
   }
 }
 
