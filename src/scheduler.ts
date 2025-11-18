@@ -199,15 +199,41 @@ export function startReminderLoop(bot: Telegraf) {
 
         if (base.getTime() + intervalMs > now.getTime()) continue;
 
+        const repeatMode: string = (t as any).repeat || 'none';
+        const repeatEveryMinutes: number | null =
+          (t as any).repeatEveryMinutes ?? null;
+
+        // “частые” повторы: каждый час или кастом до 60 минут
+        const isShortInterval =
+          repeatMode === 'hourly' ||
+          (repeatMode === 'custom-mins' &&
+            repeatEveryMinutes !== null &&
+            repeatEveryMinutes <= 60);
+
         const title = escapeHtml(t.title || 'Без названия');
         const label = escapeHtml(toLocalDateStr(now));
 
-        const text =
-          `⏰ <b>Сейчас задача:</b>\n\n` +
+        const text = isShortInterval
+          ? `🔁 <b>Повтор задачи:</b>\n\n` +
+          `<b>${title}</b>\n\n` +
+          `Статус: повтор\n` +
+          `Время: ${label}\n\n` +
+          `<i>Это напоминание исчезнет через 10 секунд</i>`
+          : `⏰ <b>Сейчас задача:</b>\n\n` +
           `<b>${title}</b>\n\n` +
           `Когда: ${label}`;
 
-        await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
+        const msg = await bot.telegram.sendMessage(chatId, text, {
+          parse_mode: 'HTML',
+        });
+
+        if (isShortInterval) {
+          setTimeout(() => {
+            bot.telegram
+              .deleteMessage(chatId, (msg as any).message_id)
+              .catch(() => {});
+          }, 10_000);
+        }
 
         await tasks.updateOne(
           { _id: t._id },
@@ -222,6 +248,7 @@ export function startReminderLoop(bot: Telegraf) {
         console.error('Repeat notification send error', err);
       }
     }
+
 
     await getCollections().tasks.updateMany(
       { dueAt: { $lt: now }, status: 'active' },
